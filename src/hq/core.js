@@ -347,12 +347,7 @@ export function createCore({ store, config, paths }) {
       resume_from: t.checkpoint,
       dependencies: depNotes,
       resolved_blockers: blockerNotes.map((b) => (b.question ? { id: b.id, question: b.question, answer: b.answer } : { id: b.id, title: b.title })),
-      git: {
-        branch: `sf/${t.id.toLowerCase()}`,
-        base: epicBranch(t),
-        how: `git switch sf/${t.id.toLowerCase()} 2>/dev/null || git switch -c sf/${t.id.toLowerCase()} ${epicBranch(t)} 2>/dev/null || git switch -c sf/${t.id.toLowerCase()}`,
-        note: 'Run git in your current directory: it is your own worktree. Never cd into another checkout.',
-      },
+      git: gitPlan(t),
       env: env(as),
       facts: s().facts.map((f) => `${f.id}: ${f.text}`),
       designs: Object.values(s().designs).map((d) => ({ path: d.path, owner: d.owner, status: d.status })),
@@ -368,7 +363,7 @@ export function createCore({ store, config, paths }) {
     return {
       ...t,
       activity: t.activity.slice(-15),
-      git: { branch, base: epicBranch(t), review: `git switch --detach ${branch} && git diff ${epicBranch(t)}...${branch}` },
+      git: { branch, base: epicBranch(t), review: `git switch --detach ${branch} && git diff ${epicBranch(t)}...${branch}`, note: 'Run in your own worktree. Never check out the branch itself.' },
       thread: s().messages.filter((m) => m.channel === `ticket:${t.id}`).slice(-10).map((m) => ({ by: m.by, text: m.text })),
     };
   }
@@ -378,6 +373,34 @@ export function createCore({ store, config, paths }) {
   }
   function branchExists(branch) {
     return spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root }).status === 0;
+  }
+  function baseRef(t) {
+    const base = epicBranch(t);
+    if (branchExists(base)) return base;
+    const head = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: paths.root, encoding: 'utf8' }).stdout.trim();
+    return head && head !== 'HEAD' ? head : 'HEAD';
+  }
+  function newCommits(t) {
+    const r = spawnSync('git', ['rev-list', '--count', `${baseRef(t)}..sf/${t.id.toLowerCase()}`], { cwd: paths.root, encoding: 'utf8' });
+    return r.status === 0 ? Number(r.stdout.trim()) : 0;
+  }
+
+  /**
+   * Ticket branches are never checked out (git refuses one branch in two
+   * worktrees, and a resumed agent gets a fresh worktree). Agents start
+   * detached from the ticket branch or its base, and save by moving the
+   * ticket branch to their HEAD.
+   */
+  function gitPlan(t) {
+    const branch = `sf/${t.id.toLowerCase()}`;
+    const base = epicBranch(t);
+    return {
+      branch,
+      base,
+      start: `git switch --detach ${branch} 2>/dev/null || git switch --detach ${base} 2>/dev/null || git switch --detach`,
+      save: `git add -A && git commit -qm "${t.id}: <what changed>"; git branch -f ${branch} HEAD`,
+      note: `Run git in your current directory (your own worktree); never cd elsewhere and never check out ${branch}. Run "save" after every meaningful step and before sf_block or sf_submit.`,
+    };
   }
 
   function mustOwn(as, t, st) {
@@ -424,9 +447,10 @@ export function createCore({ store, config, paths }) {
     if (!Object.keys(checks).length) throw new SfError('Report your checks, e.g. {"typecheck":"pass","lint":"pass","test":"pass"}. Use "n/a" where a check does not exist yet.');
     const failing = Object.entries(checks).filter(([, v]) => v !== 'pass' && v !== 'n/a');
     if (failing.length) throw new SfError(`Fix failing checks first: ${failing.map(([k, v]) => `${k}=${v}`).join(', ')}.`);
-    const branch = `sf/${t.id.toLowerCase()}`;
-    if (isGitRepo() && !branchExists(branch)) {
-      throw new SfError(`Your commits must be on branch ${branch}, which doesn't exist yet. In your worktree run \`git switch -c ${branch}\` (it keeps your commits), then submit again.`);
+    if (isGitRepo()) {
+      const { branch, save } = gitPlan(t);
+      if (!branchExists(branch)) throw new SfError(`Branch ${branch} doesn't exist yet. Commit your work and run: ${save}`);
+      if (newCommits(t) === 0) throw new SfError(`${branch} has no commits beyond ${baseRef(t)}. Your work is probably on another branch: commit it and run \`git branch -f ${branch} HEAD\`, then submit again.`);
     }
     if (t.ui && !t.attachments.some((a) => a.kind === 'screenshot')) {
       throw new SfError(`${t.id} is a UI ticket: attach at least one screenshot with sf_attach before review.`);

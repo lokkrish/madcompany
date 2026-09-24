@@ -73,7 +73,10 @@ test('merge queue: merges an approved ticket, reverts and reopens on failing che
   core.createTicket('lead', { title: 'Good', epic: 'E1' });
   core.createTicket('lead', { title: 'Bad', epic: 'E1' });
   core.claim('arjun', 'APP-1');
-  assert.throws(() => core.submit('arjun', 'APP-1', { summary: 'x', checks: { test: 'pass' } }), /must be on branch sf\/app-1/);
+  assert.throws(() => core.submit('arjun', 'APP-1', { summary: 'x', checks: { test: 'pass' } }), /sf\/app-1 doesn't exist/);
+  g('branch', 'sf/app-1', 'main');
+  assert.throws(() => core.submit('arjun', 'APP-1', { summary: 'x', checks: { test: 'pass' } }), /no commits beyond main/);
+  g('branch', '-D', 'sf/app-1');
   for (const [id, file] of [['APP-1', 'good.txt'], ['APP-2', 'broken.txt']]) {
     if (id !== 'APP-1') core.claim('arjun', id);
     g('switch', '-q', '-c', `sf/${id.toLowerCase()}`, 'main');

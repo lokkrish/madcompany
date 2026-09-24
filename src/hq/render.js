@@ -30,7 +30,13 @@ export function renderMarkdown(md, { file, registry = {} }) {
           url = '#'; // javascript:, data:, etc.
         } else {
           const [p, a] = url.split('#');
-          const target = path.posix.normalize(path.posix.join(dir, decodeURIComponent(p)));
+          let decoded = p;
+          try {
+            decoded = decodeURIComponent(p);
+          } catch {
+            // keep it as written
+          }
+          const target = path.posix.normalize(path.posix.join(dir, decoded));
           url = `#/file/${target}${a ? `?a=${encodeURIComponent(a)}` : ''}`;
         }
         const t = title ? ` title="${escapeHtml(title)}"` : '';

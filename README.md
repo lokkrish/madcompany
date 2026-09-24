@@ -74,7 +74,16 @@ Agents work unattended, so the rules are enforced in code, not just in prompts:
 
 ## Status
 
-v0: the core loop works end to end and is tested (34 tests), including a real Claude Code run. Not yet: deploy-after-demo, importing in-progress BMad sprints, screenshot comparison, and a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0).
+v0. The core loop is covered by 34 automated tests and was checked with real Claude Code runs: a Sonnet lead with Haiku dev and QA agents.
+
+| Run | What happened | Time | Usage |
+|---|---|---|---|
+| Plain ticket | dev built it → QA reviewed and ran the tests → merged → End day handled | 2–2.5 min | ~$0.5 |
+| Park and resume | dev hit an unspecified product decision → asked → parked with a checkpoint → lead escalated it to you as multiple-choice → you answered (saved as a fact) → dev resumed → reviewed → merged | ~2.5 min | ~$0.7 |
+
+![A real ticket after park and resume](docs/images/real-run-ticket.png)
+
+Not yet: deploy after the demo, importing in-progress BMad sprints, screenshot comparison, and a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0).
 
 ## License
 

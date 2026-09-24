@@ -77,7 +77,7 @@ Open HQ → **Preview**, click **Comment**, click any element, and type what sho
 ## 5. The workday: `/sf-start`
 
 Your Claude Code session becomes the lead:
-- starts agents in the background (up to `max_parallel`), each in its own git worktree on branch `sf/<ticket>`, with its own ports and database (`npx storyfront env <agent>`)
+- starts agents in the background (up to `max_parallel`), each in its own git worktree, with its own ports and database (`npx storyfront env <agent>`). Work is saved to the ticket's branch `sf/<ticket>`, which agents never check out, so a resumed ticket can continue in any worktree.
 - waits for events with `sf_wait`, which uses no Claude usage while nothing is happening
 - gets every ticket reviewed by someone other than its author, then runs `npx storyfront merge <ticket>`: merge into `epic/<n>`, run your `checks`, then mark done, or revert and reopen with the failure
 - answers questions from facts and docs, and escalates only your decisions to your **Inbox**

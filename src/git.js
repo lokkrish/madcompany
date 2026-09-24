@@ -59,6 +59,8 @@ export async function mergeTicket(paths, client, config, id, { log = console.log
     const base = await client.call('epicBranch', t.id);
     const wt = ensureEpicWorktree(paths, base);
     const before = git(wt, ['rev-parse', 'HEAD']).out;
+    const fresh = Number(git(wt, ['rev-list', '--count', `HEAD..${branch}`]).out);
+    if (fresh === 0) throw new Error(`${branch} has no commits that aren't already on ${base}. Nothing to merge; ask ${t.assignee} where the work is.`);
     const merged = git(wt, ['merge', '--no-ff', '--no-edit', '-m', `Merge ${t.id}: ${t.title}`, branch], { allowFail: true });
     if (!merged.ok) {
       const conflicts = git(wt, ['diff', '--name-only', '--diff-filter=U'], { allowFail: true }).out.split('\n').filter(Boolean);

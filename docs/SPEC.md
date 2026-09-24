@@ -335,6 +335,8 @@ In this repo: `src/hq/` (event store, rules, MCP tools, server), `ui/` (HQ web a
 
 **Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)).
 
+Checked with real Claude Code runs (a Sonnet lead with Haiku agents): a plain ticket took about 2 minutes and ~$0.5 of usage; a park → escalate → answer → resume → merge cycle took about 2.5 minutes and ~$0.7.
+
 Two v0 gates are honour-based: agents report their own check results (the merge queue re-runs the checks after merging), and a time limit per ticket isn't enforced yet (the attempt limit is).
 
 ## 18. Known limits

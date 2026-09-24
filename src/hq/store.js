@@ -228,7 +228,7 @@ export function summarize(ev) {
     case 'ticket.worklog': return d.text;
     case 'ticket.review': return `review: ${d.verdict}${d.notes ? ` — ${d.notes}` : ''}`;
     case 'ticket.attach': return `attached ${d.kind}: ${d.caption || d.path}`;
-    case 'ticket.commit': return `${(d.commits ?? []).length} commit(s) merged`;
+    case 'ticket.commit': return ev.by === 'cli' ? `merged ${(d.commits ?? []).length} commit(s)` : `reported ${(d.commits ?? []).length} commit(s)`;
     default: return ev.type;
   }
 }

@@ -44,6 +44,20 @@ export function wireframePng(file, { accent = [31, 111, 235], rows = 4, button =
   fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
 }
 
+/** Put one commit on a ticket branch without touching the checkout. */
+function demoCommit(root, branch, file) {
+  const g = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: `// ${branch}\n`, encoding: 'utf8' }).trim();
+  const tmpIndex = path.join(os.tmpdir(), `sf-demo-index-${process.pid}`);
+  const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
+  execFileSync('git', ['read-tree', 'HEAD'], { cwd: root, env });
+  execFileSync('git', ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`], { cwd: root, env });
+  const tree = execFileSync('git', ['write-tree'], { cwd: root, env, encoding: 'utf8' }).trim();
+  const commit = execFileSync('git', ['commit-tree', tree, '-p', 'HEAD', '-m', `${branch}: demo work`], { cwd: root, encoding: 'utf8' }).trim();
+  g('branch', '-f', branch, commit);
+  fs.rmSync(tmpIndex, { force: true });
+}
+
 function crc32(buf) {
   let c = ~0;
   for (const b of buf) {
@@ -97,7 +111,7 @@ export async function createDemo(dir, { log = console.log } = {}) {
     content: '# Sessions API\n\nCovers [FR1](../../../_bmad-output/planning-artifacts/prd.md#fr1).\n\n```mermaid\nsequenceDiagram\n  App->>API: POST /sessions {email, password}\n  API-->>App: 201 {token}\n```\n\n| Method | Path | Body | Returns |\n|---|---|---|---|\n| POST | /users | email, password | 201 user |\n| POST | /sessions | email, password | 201 token |\n',
   });
   core.designApprove('lena', 'docs/design/auth/sessions.md');
-  g('branch', 'sf/tt-4');
+  demoCommit(root, 'sf/tt-4', 'docs/design/auth/.keep');
   core.submit('arjun', 'TT-4', { summary: 'Sessions contract agreed: docs/design/auth/sessions.md', checks: { lint: 'pass', test: 'n/a' } });
   core.review('lead', 'TT-4', { verdict: 'approve', notes: 'Contract is clear.' });
   core.markMerged('cli', 'TT-4', { sha: 'a1b2c3d', commits: ['a1b2c3d docs: sessions contract'] });
@@ -109,7 +123,7 @@ export async function createDemo(dir, { log = console.log } = {}) {
   core.attach('lena', 'TT-1', { path: path.join(shots, 'signup.png'), caption: 'Sign-up screen, 390×844' });
   core.ask('lena', { to: 'arjun', question: 'Do you return field-level errors for a taken email?', ticket: 'TT-1' });
   core.answer('arjun', 'Q-1', 'Yes: 409 with {field:"email", code:"taken"}. Added to the contract.');
-  g('branch', 'sf/tt-1');
+  demoCommit(root, 'sf/tt-1', 'app/signup.tsx');
   core.submit('lena', 'TT-1', { summary: 'Sign-up screen with validation, mock API client', checks: { typecheck: 'pass', lint: 'pass', test: 'pass' } });
   core.review('qa', 'TT-1', { verdict: 'approve', notes: 'Checked on 390 and 820 widths.' });
   core.markMerged('cli', 'TT-1', { sha: 'e4f5a6b', commits: ['e4f5a6b feat(signup): screen + validation'] });

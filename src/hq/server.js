@@ -169,6 +169,8 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     const abs = safeJoin(paths.root, rel);
     if (!abs || isHiddenPath(rel)) return json(res, 403, { error: 'Not allowed' });
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return json(res, 404, { error: `No file ${rel}` });
+    // a symlink inside the project must not reveal files outside it
+    if (!safeJoin(fs.realpathSync(paths.root), path.relative(fs.realpathSync(paths.root), fs.realpathSync(abs)))) return json(res, 403, { error: 'Not allowed' });
     const size = fs.statSync(abs).size;
     if (MIME[path.extname(abs).toLowerCase()]?.startsWith('image/')) return json(res, 200, { path: rel, kind: 'image', src: `/raw/${encodeURI(rel)}` });
     if (size > 2 * 1024 * 1024) return json(res, 200, { path: rel, kind: 'too-big', size });

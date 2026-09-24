@@ -76,6 +76,8 @@ test('security: foreign origins and hosts are refused; secrets and traversal are
   assert.equal(cli.status, 403, 'CLI endpoint needs the CLI header');
   assert.equal((await fetch(`${base}/api/file?path=.env`)).status, 403);
   assert.equal((await fetch(`${base}/api/file?path=../../etc/passwd`)).status, 403);
+  fs.symlinkSync('/etc/hostname', path.join(ctx.root, 'docs', 'escape.md'));
+  assert.equal((await fetch(`${base}/api/file?path=docs/escape.md`)).status, 403);
   // a DNS-rebinding style Host header
   const res = await new Promise((resolve) => {
     import('node:http').then(({ request }) => {
