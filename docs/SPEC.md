@@ -1,6 +1,7 @@
 # BMAD Company: Spec
 
-**Status:** Draft v0.1, agreed in chat on 2026-09-24. Nothing is built yet.
+**Status:** Draft v0.2, agreed in chat on 2026-09-24. Nothing is built yet.
+**Name:** "BMAD Company" is a working title and will change before release ([OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
 ## TL;DR
@@ -9,7 +10,8 @@
 - You're involved in three places: UI/UX sessions, escalations the team can't resolve, and the end-of-epic demo.
 - Everything the team does is visible in **HQ**, a local app combining Teams-style chat, a Jira-style board, a decisions log and a dashboard.
 - Every reference (requirement, ticket, decision, file) is a clickable link.
-- It runs on your machine and your Claude plan, during a workday you start and end.
+- The team runs inside your own Claude Code session, on your machine, during a workday you start and end.
+- Open source, installable as a BMad module or on its own.
 
 ## 1. Problems this solves
 
@@ -26,15 +28,17 @@
 
 | ID | Decision |
 |---|---|
-| <a id="d1"></a>D1 | Claude Code runs the team. HQ is reachable over MCP and plain files, so Codex agents can join. |
+| <a id="d1"></a>D1 | The team runs inside the user's own Claude Code session (Codex later, [OSS-7](#oss-7)). HQ is reachable over MCP and plain files, so either host can use it. |
 | <a id="d2"></a>D2 | The app stack is chosen per project during planning. Shortlist: Next.js, Expo / React Native, Postgres; hosting on Vercel, Azure or AWS. |
-| <a id="d3"></a>D3 | Runs on your machine, with a workday you start and end ([§11](#11-workday-and-usage-limits)). |
+| <a id="d3"></a>D3 | Runs on your machine, with a workday you start and end ([DAY-1](#day-1)). |
 | <a id="d4"></a>D4 | Escalations reach you only in HQ. No phone, Slack or Teams pings. |
-| <a id="d5"></a>D5 | Uses your Claude plan login, not an API key. |
+| <a id="d5"></a>D5 | Agents use the host's own login, whatever the user has set up (Claude plan or API key). The product never handles credentials ([SEC-5](#sec-5)). |
 | <a id="d6"></a>D6 | Each agent has a role plus domain expertise defined per app. They mostly stay in their domain but aren't locked to a single skill. |
 | <a id="d7"></a>D7 | The board is built into HQ, not synced to Jira or GitHub Issues. |
 | <a id="d8"></a>D8 | Agents are persistent in the style of OpenClaw, minus its public skill marketplace and public exposure. |
 | <a id="d9"></a>D9 | BMAD stays for planning. This replaces BMAD's Phase 4 (implementation). |
+| <a id="d10"></a>D10 | The project is public and open source ([§16](#16-open-source)). |
+| <a id="d11"></a>D11 | v0 supports macOS and Linux; Windows through WSL. |
 
 ## 3. How a project runs
 
@@ -71,6 +75,8 @@ flowchart LR
 | <a id="flow-4"></a>FLOW-4 | An epic without UI starts with an MVP slice. The team revises from your feedback. |
 | <a id="flow-5"></a>FLOW-5 | An epic isn't done until you've clicked through its demo. |
 | <a id="flow-6"></a>FLOW-6 | After you approve the demo, one command deploys the backend to the chosen cloud ([D2](#d2)) and switches the app's API URL to it. |
+| <a id="flow-7"></a>FLOW-7 | An in-progress BMad project can be imported: its existing epics, stories and sprint status become tickets. |
+| <a id="flow-8"></a>FLOW-8 | For an existing codebase, a one-time scan writes design packs ([TEAM-7](#team-7)) for the areas that already exist before work starts, so agents know the code they're changing. |
 
 ## 4. Team and agents
 
@@ -81,19 +87,24 @@ max_parallel: 3            # agents working at the same time
 team:
   - id: lead
     role: Tech lead / PM
+    model: opus
   - id: maya
     role: UX designer
     domain: [design system, navigation, onboarding flows]
+    model: sonnet
   - id: arjun
     role: Backend developer
     domain: [Node API, payments]
     also: [Postgres]
+    model: sonnet
   - id: lena
     role: Mobile developer
     domain: [Expo screens, offline sync]
+    model: sonnet
   - id: qa
     role: QA engineer
     domain: [E2E tests, screenshots]
+    model: haiku
 ```
 
 | ID | Requirement |
@@ -106,7 +117,8 @@ team:
 | <a id="team-6"></a>TEAM-6 | Work spanning domains is split into linked tickets. The agents collaborate through a shared thread and a contract, rather than one agent editing across domains. |
 | <a id="team-7"></a>TEAM-7 | Before coding, a developer publishes a design pack in `docs/design/<area>/`: module/class sketch and logic flow (Mermaid), API contract (OpenAPI), DB schema and key decisions. Any agent can read it. |
 | <a id="team-8"></a>TEAM-8 | Each design doc has an owner and a status: draft → agreed → frozen. It becomes "agreed" once every agent that uses it approves. Changing an agreed doc opens a thread tagging all of them. |
-| <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree and branch. The lead merges. |
+| <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree and branch. The lead merges ([MRG-1](#mrg-1)). |
+| <a id="team-10"></a>TEAM-10 | Each role sets its model in `team.yaml`: a stronger one for the lead and architecture work, a cheaper one for QA and routine tickets. This makes the plan's usage limits last longer. |
 
 ## 5. Tickets, blocking and resume
 
@@ -117,7 +129,7 @@ Statuses: `To do → In progress → In review → Done`, with `Blocked` entered
 | <a id="tkt-1"></a>TKT-1 | The lead turns each epic into tickets with dependencies. Agents work on ready tickets in parallel. |
 | <a id="tkt-2"></a>TKT-2 | A ticket isn't started until the tickets it depends on are Done. |
 | <a id="tkt-3"></a>TKT-3 | An agent that hits a blocker mid-task doesn't wait, because Claude's prompt cache expires after about 5 minutes. Instead it marks the ticket *Blocked by X* and commits its work in progress. It writes a checkpoint on the ticket: what's done, the exact next step, files touched and open questions. Then it takes another ready ticket in its domain, or stops. |
-| <a id="tkt-4"></a>TKT-4 | When the blocking ticket is Done, HQ wakes the same agent with the parked ticket, its checkpoint and the other agent's handoff note. A busy agent finishes its current ticket first; the lead may reassign an urgent one. |
+| <a id="tkt-4"></a>TKT-4 | When the blocking ticket is Done, HQ tells the lead, which restarts the same agent with the parked ticket, its checkpoint and the other agent's handoff note. A busy agent finishes its current ticket first; the lead may reassign an urgent one. |
 | <a id="tkt-5"></a>TKT-5 | A resumed ticket starts a fresh session from the checkpoint, not from the old conversation. |
 | <a id="tkt-6"></a>TKT-6 | Every status change and work update is logged with agent, time and links, so you can see which agent did what, as in Jira. |
 
@@ -147,7 +159,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 
 | ID | Requirement |
 |---|---|
-| <a id="hq-1"></a>HQ-1 | **Dashboard** (home screen), updating live. It shows the workday state with Start day / End day / Stop now; each agent's status (working, blocked, idle or off), current ticket and last update; progress and current step for each epic; how many items need you, and the top ones; what's blocked on what; the latest screenshots and a link to the running app; recent decisions; and today's totals (tickets moved, commits, test status, plan usage). |
+| <a id="hq-1"></a>HQ-1 | **Dashboard** (home screen), updating live. It shows the workday state with End day / Stop now; each agent's status (working, blocked, idle or off), current ticket and last update; progress and current step for each epic; how many items need you, and the top ones; what's blocked on what; the latest screenshots and a link to the running app; recent decisions; and today's totals (tickets moved, commits, test status, plan usage where the host reports it). |
 | <a id="hq-2"></a>HQ-2 | **Chat:** channels (#general, one per epic, #contracts), direct messages, one thread per ticket and @mentions. You can post, and you can message any agent directly (the lead gets a copy). |
 | <a id="hq-3"></a>HQ-3 | **Board** (Jira-style): tickets with ID (e.g. APP-42), epic, assignee, blocked-by / blocks and status. Each ticket has an activity log (status changes, comments, checkpoints, commits, screenshots). A per-agent view shows what each agent did today, what it's doing now and what it's waiting on. Commits that mention a ticket ID attach to it automatically. |
 | <a id="hq-4"></a>HQ-4 | **Decisions:** every decision made without you, with who, what, why, alternatives considered and links. |
@@ -187,6 +199,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="vis-3"></a>VIS-3 | Mobile: Expo web preview in the browser, Expo Go on your phone, and the iOS Simulator or Android emulator on your machine. |
 | <a id="vis-4"></a>VIS-4 | Screenshots are compared with the approved UI, and differences are flagged on the ticket. |
 | <a id="vis-5"></a>VIS-5 | Products without a UI demo the MVP slice through an API explorer (Swagger) or a CLI run. |
+| <a id="vis-6"></a>VIS-6 | In Preview, you can click any element and type a comment. It becomes a ticket, or a change request ([CHG-1](#chg-1)), with the screenshot, screen, element and screen size attached. Works for web apps and the Expo web preview. |
 
 ## 10. Integrations and deployment
 
@@ -201,10 +214,10 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | ID | Requirement |
 |---|---|
 | <a id="day-1"></a>DAY-1 | **End day:** each agent finishes its current step, commits its work in progress and writes a handoff note (done / in progress / next / waiting on). The note goes into its memory and onto its tickets, and is posted in HQ. Then the agent stops. |
-| <a id="day-2"></a>DAY-2 | **Start day:** each agent reloads its identity, memory, handoff note and unread messages, posts a one-line stand-up and carries on. |
+| <a id="day-2"></a>DAY-2 | **Start day:** you run `/company start` in Claude Code. Each agent reloads its identity, memory, handoff note and unread messages, posts a one-line stand-up and carries on. |
 | <a id="day-3"></a>DAY-3 | **Stop now:** halts all agents immediately. They resume from their last checkpoint. |
-| <a id="day-4"></a>DAY-4 | Agents run as normal `claude` sessions on your plan login ([D5](#d5)); bare mode and the Agent SDK need an API key, so they aren't used. All agents share your plan's usage limits, so `max_parallel` caps how many work at once. When a limit is hit, agents pause the same way as End day and resume when it resets. |
-| <a id="day-5"></a>DAY-5 | Agents are woken by events: an @mention, a ticket unblocked, a contract changed, or the start of day. A background check by the supervisor catches missed events; it's plain code, so it uses no Claude usage unless there's work. |
+| <a id="day-4"></a>DAY-4 | Agents run as subagents inside your Claude Code session, on its login ([D5](#d5)). All agents share your plan's usage limits, so `max_parallel` caps how many work at once. When a limit is hit, agents pause the same way as End day and resume when it resets. |
+| <a id="day-5"></a>DAY-5 | Agents are woken by events: an @mention, a ticket unblocked, a contract changed, or the start of day. HQ sends these to the lead, which starts the right agent. Waiting for events uses no Claude usage. |
 
 ## 12. Quality gates
 
@@ -214,7 +227,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="qa-2"></a>QA-2 | Each ticket's diff is reviewed by an agent other than its author. |
 | <a id="qa-3"></a>QA-3 | You are the final gate only at the epic demo ([FLOW-5](#flow-5)). |
 
-## 13. Security
+## 13. Security and safety
 
 | ID | Requirement |
 |---|---|
@@ -222,30 +235,85 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="sec-2"></a>SEC-2 | No third-party skill or plugin marketplace. Each agent gets only the tools its role needs. |
 | <a id="sec-3"></a>SEC-3 | Secrets live in `.env` (gitignored) and never appear in messages, tickets or logs. |
 | <a id="sec-4"></a>SEC-4 | Content from outside sources (web pages, fetched docs) is treated as data, never as instructions. |
+| <a id="sec-5"></a>SEC-5 | The product never reads, stores or forwards Claude or Codex credentials. Agents run inside the user's own host session. |
+| <a id="sec-6"></a>SEC-6 | Each role has a permission profile: an allowlist of commands and tools, applied through the host's permission settings. Anything outside it is denied instead of waiting on a prompt nobody will answer; the agent parks the ticket and escalates. |
+| <a id="sec-7"></a>SEC-7 | A hard deny list always goes to you: force-pushing or rewriting history, deleting files outside the project, deploys, paid services or purchases, global installs, and changing secrets. |
+| <a id="sec-8"></a>SEC-8 | Shell commands run in the host's sandbox where it's available. |
 
-## 14. Proposed build (not started)
+## 14. Environments and merging
+
+| ID | Requirement |
+|---|---|
+| <a id="env-1"></a>ENV-1 | Each agent's worktree gets its own ports and its own database on one shared local Postgres, allocated by HQ. No two agents collide on port 3000 or share tables. |
+| <a id="env-2"></a>ENV-2 | Every database starts from the same migrations and seed data, so agents and previews see realistic data. |
+| <a id="env-3"></a>ENV-3 | The epic's integration branch has its own running environment. That's what Preview shows and what you click through at the demo. |
+| <a id="env-4"></a>ENV-4 | Local services (Postgres, mock servers) start with one command, through Docker Compose. |
+| <a id="mrg-1"></a>MRG-1 | Each epic has an integration branch. The lead merges finished tickets into it one at a time, in a merge queue. |
+| <a id="mrg-2"></a>MRG-2 | The gates ([QA-1](#qa-1)) run again after every merge. If the branch breaks, the merge is reverted and the ticket reopened with the failure attached. |
+| <a id="mrg-3"></a>MRG-3 | Database migrations are timestamped and owned by one domain. That owner resolves any clash at merge. |
+| <a id="mrg-4"></a>MRG-4 | The epic branch merges into main after you approve the demo ([FLOW-5](#flow-5)). |
+
+## 15. Changes and failures
+
+| ID | Requirement |
+|---|---|
+| <a id="chg-1"></a>CHG-1 | You can raise a change at any time: in chat, from the Inbox, or by commenting on the Preview ([VIS-6](#vis-6)). |
+| <a id="chg-2"></a>CHG-2 | The lead posts an impact check: the affected tickets, contracts and screens, in one line with links. |
+| <a id="chg-3"></a>CHG-3 | Affected tickets are reopened, changed contracts get a new version, and every agent that uses them is notified. The change is logged as a decision. |
+| <a id="chg-4"></a>CHG-4 | Small changes go ahead. Changes that alter an epic's scope wait for your OK. |
+| <a id="rel-1"></a>REL-1 | Each ticket has a limit on attempts and working time. Hitting it escalates the ticket one level ([ESC-1](#esc-1)). |
+| <a id="rel-2"></a>REL-2 | The same failure 3 times in a row escalates instead of retrying. |
+| <a id="rel-3"></a>REL-3 | If a question bounces between the same two agents twice, the lead decides it. |
+| <a id="rel-4"></a>REL-4 | If an agent crashes, its ticket keeps its last checkpoint and the lead restarts it. |
+| <a id="rel-5"></a>REL-5 | Agents send the lead short reports; the details live in HQ. When the lead's context fills up, it restarts from HQ state, the same way as Start day ([DAY-2](#day-2)). |
+
+## 16. Open source
+
+Similar tools already exist, such as AgentsRoom, CrewAI and agency-agents. What sets this one apart: BMad planning goes in, epics are built UI first, HQ combines a board, a decisions log and clickable traceability, and the team runs inside your own Claude Code.
+
+| ID | Requirement |
+|---|---|
+| <a id="oss-1"></a>OSS-1 | The product gets a name without "BMad" or anything similar, per BMad's trademark policy. The description may say "Compatible with BMad Method v6". |
+| <a id="oss-2"></a>OSS-2 | License: MIT. Any reused BMad content keeps its license notice. |
+| <a id="oss-3"></a>OSS-3 | Repo basics: SECURITY.md, CONTRIBUTING, a code of conduct, issue templates, CI, semver releases and a changelog. |
+| <a id="oss-4"></a>OSS-4 | No telemetry. |
+| <a id="oss-5"></a>OSS-5 | Two ways to install: as a BMad module through BMad's installer (`npx bmad-method install --custom-source <repo>`), and standalone (`npx <name> init`). Also listed in the BMad plugins marketplace. |
+| <a id="oss-6"></a>OSS-6 | The supported BMad Method version is stated. The bridge has tests against that version's output and warns on other versions. |
+| <a id="oss-7"></a>OSS-7 | Host adapters: Claude Code in v0, Codex next. Other coding agents (Gemini CLI, Cursor) can join through the same MCP server and file formats. |
+| <a id="oss-8"></a>OSS-8 | The `.company/` file formats are documented and versioned, so other tools can read them. |
+| <a id="oss-9"></a>OSS-9 | Supported platforms follow [D11](#d11): macOS and Linux, Windows through WSL. |
+| <a id="oss-10"></a>OSS-10 | Ships with a public sample app built with it, with time and usage numbers and a short demo video. |
+
+## 17. Proposed build (not started)
 
 ```mermaid
 flowchart TB
   you([You]) -- browser --> ui[HQ web app<br/>dashboard, chat, board]
-  ui --- hq[HQ server<br/>database + events]
-  sup[Supervisor<br/>wakes agents, workday commands] --- hq
-  sup -- starts claude sessions --> lead[Agent: lead]
-  sup -- starts claude sessions --> be[Agent: backend]
-  sup -- starts claude sessions --> mob[Agent: mobile]
+  ui --- hq[HQ server<br/>database, events, MCP]
+  subgraph host[Your Claude Code session]
+    lead[Lead agent<br/>dispatches tickets]
+    be[Backend agent]
+    mob[Mobile agent]
+    qa[QA agent]
+  end
+  hq -- events --> lead
+  lead -- starts --> be
+  lead -- starts --> mob
+  lead -- starts --> qa
   lead -- MCP --> hq
   be -- MCP --> hq
   mob -- MCP --> hq
+  qa -- MCP --> hq
   hq -- mirrors --> files[(.company/log<br/>in git)]
 ```
 
-This repo holds the framework, which gets installed into each app project.
+HQ keeps the state and serves the app; it never starts agents itself or touches credentials. The lead runs in your Claude Code session and starts the other agents as subagents, each in its own worktree.
 
 In an app project:
 
 ```
 .company/
-  team.yaml                 # roster                      TEAM-1
+  team.yaml                 # roster, domains, models     TEAM-1, TEAM-10
   agents/<id>/identity.md   # role, domain, rules         TEAM-2
   agents/<id>/work.md       # work memory                 TEAM-3
   agents/<id>/comms.md      # comms memory                TEAM-3
@@ -262,26 +330,30 @@ In this repo:
 
 ```
 hq/            # HQ server, web app, MCP server
-supervisor/    # wakes agents, workday commands, max_parallel
-templates/     # role identities, team.yaml, CLAUDE.md / AGENTS.md
-bmad-bridge/   # adds anchors to BMAD docs, imports epics as tickets
+plugin/        # Claude Code plugin: /company commands, lead skill, agent templates, hooks
+codex/         # Codex setup (after v0)
+templates/     # team.yaml, identity and memory files, permission profiles
+bmad-module/   # BMad module packaging and bridge (anchors, epic import)
+examples/      # sample app built with it (OSS-10)
 ```
 
 **v0 scope**
-1. Templates: `team.yaml`, identity files for common roles, and the two memory files.
-2. HQ server and MCP tools: chat, tickets, checkpoints, decisions, escalations.
-3. HQ web app: dashboard, chat, board, inbox, and reference linking.
-4. Supervisor: wakes agents on events, handles workday commands, enforces `max_parallel`.
-5. BMAD bridge: anchors on PRD and epics, and epics imported as tickets.
-6. One small sample epic run from start to finish on a demo app.
+1. Templates: `team.yaml` (roles, domains, models), identity and memory files, and a permission profile per role.
+2. HQ server and MCP tools: chat, tickets, checkpoints, decisions, escalations, and port and database allocation.
+3. HQ web app: dashboard, chat, board, inbox, reference linking, and Preview with click-to-comment.
+4. Claude Code plugin: `/company start`, End day and Stop now; the lead's dispatch loop; a worktree per agent; and the merge queue into the epic branch.
+5. BMad bridge: anchors on PRD and epics, and epics imported as tickets, installable as a BMad module.
+6. A sample app built from start to finish, with time and usage numbers.
 
-**Later:** screenshot comparison, reviewer gates, Codex as a worker, deploy scripts per cloud.
+**Later:** Codex adapter, importing in-progress BMad projects ([FLOW-7](#flow-7)), existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison, deploy scripts per cloud, and a headless mode on an API key for overnight runs.
 
-## 15. Known limits
+## 18. Known limits
 
 - An agent's memory is files it re-reads at startup, not real recall. How well it remembers depends on compaction ([TEAM-4](#team-4)).
-- Parallel work still produces merge conflicts, which the lead resolves.
+- Your Claude Code session has to stay open while the team works. If it closes, `/company start` picks up from HQ.
+- Parallel work still produces merge conflicts, which the lead resolves ([MRG-1](#mrg-1)).
 - Autonomous work isn't automatically correct. The gates reduce rework but don't eliminate it.
 - The iOS Simulator needs a Mac.
 - Your plan's usage limits cap how much can run in parallel.
 - Claude Code's built-in agent-teams feature is still experimental, so this design doesn't depend on it.
+- Codex support depends on Codex's subagent features and gets checked when that adapter is built.
