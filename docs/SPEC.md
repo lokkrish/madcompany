@@ -1,7 +1,7 @@
-# BMAD Company: Spec
+# Storyfront: Spec
 
-**Status:** Draft v0.2, agreed in chat on 2026-09-24. Nothing is built yet.
-**Name:** "BMAD Company" is a working title and will change before release ([OSS-1](#oss-1)).
+**Status:** v0.3, 2026-09-24. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
+**Name:** Storyfront (the working title was "BMAD Company"; see [OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
 ## TL;DR
@@ -80,7 +80,7 @@ flowchart LR
 
 ## 4. Team and agents
 
-Example roster (`.company/team.yaml`):
+Example roster (`.storyfront/team.yaml`):
 
 ```yaml
 max_parallel: 3            # agents working at the same time
@@ -109,7 +109,7 @@ team:
 
 | ID | Requirement |
 |---|---|
-| <a id="team-1"></a>TEAM-1 | You choose how many agents there are and their roles, in `.company/team.yaml`. |
+| <a id="team-1"></a>TEAM-1 | You choose how many agents there are and their roles, in `.storyfront/team.yaml`. |
 | <a id="team-2"></a>TEAM-2 | Each agent has an identity file with its name, role, domain expertise (main and secondary), rules and allowed tools. |
 | <a id="team-3"></a>TEAM-3 | Each agent has two memories: `work.md` (what it built, what it knows, areas it owns) and `comms.md` (open threads, promises made, questions waiting on others). |
 | <a id="team-4"></a>TEAM-4 | When a memory grows past a limit, it's compacted into a summary. Older detail moves to an archive the agent can search. |
@@ -117,7 +117,7 @@ team:
 | <a id="team-6"></a>TEAM-6 | Work spanning domains is split into linked tickets. The agents collaborate through a shared thread and a contract, rather than one agent editing across domains. |
 | <a id="team-7"></a>TEAM-7 | Before coding, a developer publishes a design pack in `docs/design/<area>/`: module/class sketch and logic flow (Mermaid), API contract (OpenAPI), DB schema and key decisions. Any agent can read it. |
 | <a id="team-8"></a>TEAM-8 | Each design doc has an owner and a status: draft → agreed → frozen. It becomes "agreed" once every agent that uses it approves. Changing an agreed doc opens a thread tagging all of them. |
-| <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree and branch. The lead merges ([MRG-1](#mrg-1)). |
+| <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree, on a branch per ticket (`sf/<ticket>`). The lead merges ([MRG-1](#mrg-1)). |
 | <a id="team-10"></a>TEAM-10 | Each role sets its model in `team.yaml`: a stronger one for the lead and architecture work, a cheaper one for QA and routine tickets. This makes the plan's usage limits last longer. |
 
 ## 5. Tickets, blocking and resume
@@ -166,7 +166,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="hq-5"></a>HQ-5 | **Inbox:** only escalations for you ([ESC-4](#esc-4)), answered with a click. |
 | <a id="hq-6"></a>HQ-6 | **Team:** the roster, each agent's identity and both of its memories, readable. |
 | <a id="hq-7"></a>HQ-7 | **Preview:** screenshots per ticket and epic, plus a link to the running dev app. |
-| <a id="hq-8"></a>HQ-8 | Messages, tickets and decisions are stored in HQ's database and mirrored as readable files under `.company/log/`. History survives when HQ is off and is versioned with the code. |
+| <a id="hq-8"></a>HQ-8 | Everything is stored in an append-only event log (`.storyfront/log/events.jsonl`), with readable markdown copies next to it (board, chat, decisions, questions). History survives when HQ is off and is versioned with the code (`npx storyfront snapshot`). |
 | <a id="hq-9"></a>HQ-9 | Agents use HQ through an MCP server with tools to post, read, claim and update tickets, checkpoint, log decisions and escalate. It works in both Claude Code and Codex ([D1](#d1)). |
 
 ## 7. Clickable references
@@ -174,7 +174,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | ID | Requirement |
 |---|---|
 | <a id="ref-1"></a>REF-1 | Every item that can be referred to has a stable ID pointing at a file and an anchor: requirements (FR-12, NFR-3), epics, stories, tickets (APP-42), decisions (DEC-7), design docs, doc sections, commits, and files with line numbers. |
-| <a id="ref-2"></a>REF-2 | IDs are never reused or renumbered. A registry (`.company/ids.json`) maps each ID to its file, anchor and title. A script keeps it up to date. |
+| <a id="ref-2"></a>REF-2 | IDs are never reused or renumbered. A registry (`.storyfront/ids.json`) maps each ID to its file, anchor and title. A script keeps it up to date. |
 | <a id="ref-3"></a>REF-3 | In HQ, any ID or file path in any text becomes a link. Hovering shows the title and first lines; clicking opens the rendered file at the exact spot. |
 | <a id="ref-4"></a>REF-4 | In markdown written by agents, references must be links, e.g. `[FR-12](docs/prd.md#fr-12)`. A check rejects bare IDs ([QA-1](#qa-1)). |
 | <a id="ref-5"></a>REF-5 | BMAD planning docs (PRD, architecture, epics) get an anchor on every requirement and section, added in a step right after planning. |
@@ -186,7 +186,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 |---|---|
 | <a id="esc-1"></a>ESC-1 | Escalation ladder: agent → owner of the dependency → tech lead → PM → you. |
 | <a id="esc-2"></a>ESC-2 | Before passing a question up, each level checks the facts register, decisions log, contracts and PRD. A question reaches you only if it's still unresolved, or if it's your call: UX or product changes, money, credentials and sign-ups, security, irreversible actions, or departing from the architecture. |
-| <a id="esc-3"></a>ESC-3 | Your answers are saved in the facts register (`.company/facts.md`). Agents must check it before asking, so no question is asked twice. |
+| <a id="esc-3"></a>ESC-3 | Your answers are saved in the facts register (`.storyfront/facts.md`). Agents must check it before asking, so no question is asked twice. |
 | <a id="esc-4"></a>ESC-4 | The PM batches escalations to you. Each is one line, multiple-choice, with a recommended option and links to its sources ([REF-6](#ref-6)). |
 | <a id="esc-5"></a>ESC-5 | Every autonomous decision is logged ([HQ-4](#hq-4)). |
 
@@ -206,7 +206,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | ID | Requirement |
 |---|---|
 | <a id="int-1"></a>INT-1 | Each third-party service sits behind an adapter with a `mock` and a `live` version, switched per service in `.env`. |
-| <a id="int-2"></a>INT-2 | `.company/credentials-needed.md` lists each service you need to sign up for, the key it needs and the tickets that use it. Services stay mocked until MVP. |
+| <a id="int-2"></a>INT-2 | `.storyfront/credentials-needed.md` lists each service you need to sign up for, the key it needs and the tickets that use it. Services stay mocked until MVP. |
 | <a id="int-3"></a>INT-3 | After an epic demo, the backend and Postgres deploy to the project's cloud ([D2](#d2)), the web frontend deploys to Vercel if that was chosen, and the mobile app points at the cloud API. |
 
 ## 11. Workday and usage limits
@@ -214,8 +214,8 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | ID | Requirement |
 |---|---|
 | <a id="day-1"></a>DAY-1 | **End day:** each agent finishes its current step, commits its work in progress and writes a handoff note (done / in progress / next / waiting on). The note goes into its memory and onto its tickets, and is posted in HQ. Then the agent stops. |
-| <a id="day-2"></a>DAY-2 | **Start day:** you run `/company start` in Claude Code. Each agent reloads its identity, memory, handoff note and unread messages, posts a one-line stand-up and carries on. |
-| <a id="day-3"></a>DAY-3 | **Stop now:** halts all agents immediately. They resume from their last checkpoint. |
+| <a id="day-2"></a>DAY-2 | **Start day:** you run `/sf-start` in Claude Code. Each agent reloads its identity, memory, handoff note and unread messages, posts a one-line stand-up and carries on. |
+| <a id="day-3"></a>DAY-3 | **Stop now:** the safety hook blocks every agent's next action (except Storyfront's own tools), so work halts within one step. They resume from their last checkpoint. |
 | <a id="day-4"></a>DAY-4 | Agents run as subagents inside your Claude Code session, on its login ([D5](#d5)). All agents share your plan's usage limits, so `max_parallel` caps how many work at once. When a limit is hit, agents pause the same way as End day and resume when it resets. |
 | <a id="day-5"></a>DAY-5 | Agents are woken by events: an @mention, a ticket unblocked, a contract changed, or the start of day. HQ sends these to the lead, which starts the right agent. Waiting for events uses no Claude usage. |
 
@@ -248,7 +248,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="env-2"></a>ENV-2 | Every database starts from the same migrations and seed data, so agents and previews see realistic data. |
 | <a id="env-3"></a>ENV-3 | The epic's integration branch has its own running environment. That's what Preview shows and what you click through at the demo. |
 | <a id="env-4"></a>ENV-4 | Local services (Postgres, mock servers) start with one command, through Docker Compose. |
-| <a id="mrg-1"></a>MRG-1 | Each epic has an integration branch. The lead merges finished tickets into it one at a time, in a merge queue. |
+| <a id="mrg-1"></a>MRG-1 | Each epic has an integration branch (`epic/<n>`; tickets without an epic use `epic/misc`). The lead merges finished tickets into it one at a time, in a merge queue (`npx storyfront merge <ticket>`). |
 | <a id="mrg-2"></a>MRG-2 | The gates ([QA-1](#qa-1)) run again after every merge. If the branch breaks, the merge is reverted and the ticket reopened with the failure attached. |
 | <a id="mrg-3"></a>MRG-3 | Database migrations are timestamped and owned by one domain. That owner resolves any clash at merge. |
 | <a id="mrg-4"></a>MRG-4 | The epic branch merges into main after you approve the demo ([FLOW-5](#flow-5)). |
@@ -273,30 +273,30 @@ Similar tools already exist, such as AgentsRoom, CrewAI and agency-agents. What 
 
 | ID | Requirement |
 |---|---|
-| <a id="oss-1"></a>OSS-1 | The product gets a name without "BMad" or anything similar, per BMad's trademark policy. The description may say "Compatible with BMad Method v6". |
+| <a id="oss-1"></a>OSS-1 | The product is called **Storyfront**, with no "BMad" in the name, per BMad's trademark policy. The description may say "Compatible with BMad Method v6". |
 | <a id="oss-2"></a>OSS-2 | License: MIT. Any reused BMad content keeps its license notice. |
 | <a id="oss-3"></a>OSS-3 | Repo basics: SECURITY.md, CONTRIBUTING, a code of conduct, issue templates, CI, semver releases and a changelog. |
 | <a id="oss-4"></a>OSS-4 | No telemetry. |
 | <a id="oss-5"></a>OSS-5 | Two ways to install: as a BMad module through BMad's installer (`npx bmad-method install --custom-source <repo>`), and standalone (`npx <name> init`). Also listed in the BMad plugins marketplace. |
 | <a id="oss-6"></a>OSS-6 | The supported BMad Method version is stated. The bridge has tests against that version's output and warns on other versions. |
 | <a id="oss-7"></a>OSS-7 | Host adapters: Claude Code in v0, Codex next. Other coding agents (Gemini CLI, Cursor) can join through the same MCP server and file formats. |
-| <a id="oss-8"></a>OSS-8 | The `.company/` file formats are documented and versioned, so other tools can read them. |
+| <a id="oss-8"></a>OSS-8 | The `.storyfront/` file formats are documented and versioned, so other tools can read them. |
 | <a id="oss-9"></a>OSS-9 | Supported platforms follow [D11](#d11): macOS and Linux, Windows through WSL. |
 | <a id="oss-10"></a>OSS-10 | Ships with a public sample app built with it, with time and usage numbers and a short demo video. |
 
-## 17. Proposed build (not started)
+## 17. Build (v0)
 
 ```mermaid
 flowchart TB
   you([You]) -- browser --> ui[HQ web app<br/>dashboard, chat, board]
-  ui --- hq[HQ server<br/>database, events, MCP]
+  ui --- hq[HQ server<br/>event log, MCP, views]
   subgraph host[Your Claude Code session]
-    lead[Lead agent<br/>dispatches tickets]
-    be[Backend agent]
-    mob[Mobile agent]
-    qa[QA agent]
+    lead[Lead: /sf-start<br/>dispatches tickets]
+    be[sf-arjun]
+    mob[sf-lena]
+    qa[sf-qa]
   end
-  hq -- events --> lead
+  hq -- sf_wait notices --> lead
   lead -- starts --> be
   lead -- starts --> mob
   lead -- starts --> qa
@@ -304,53 +304,44 @@ flowchart TB
   be -- MCP --> hq
   mob -- MCP --> hq
   qa -- MCP --> hq
-  hq -- mirrors --> files[(.company/log<br/>in git)]
+  hq -- writes --> files[(.storyfront/log<br/>in git)]
 ```
 
-HQ keeps the state and serves the app; it never starts agents itself or touches credentials. The lead runs in your Claude Code session and starts the other agents as subagents, each in its own worktree.
+HQ keeps the state and serves the app; it never starts agents itself or touches credentials. The lead is your Claude Code session running `/sf-start`. It starts the other agents as subagents, each in its own worktree, and waits for events with `sf_wait`, which uses no Claude usage while idle.
 
 In an app project:
 
 ```
-.company/
-  team.yaml                 # roster, domains, models     TEAM-1, TEAM-10
-  agents/<id>/identity.md   # role, domain, rules         TEAM-2
-  agents/<id>/work.md       # work memory                 TEAM-3
-  agents/<id>/comms.md      # comms memory                TEAM-3
-  facts.md                  # your answers                ESC-3
-  ids.json                  # reference registry          REF-2
-  log/                      # mirrored chat, tickets      HQ-8
-  credentials-needed.md     #                             INT-2
-docs/
-  prd.md, architecture.md, epics/   # from BMAD, anchored REF-5
-  design/<area>/                    # design packs        TEAM-7
+.storyfront/
+  team.yaml                 # roster, domains, models       TEAM-1, TEAM-10
+  agents/<id>/identity.md   # role, domain                  TEAM-2
+  agents/<id>/work.md       # work memory                   TEAM-3
+  agents/<id>/comms.md      # comms memory                  TEAM-3
+  facts.md                  # your answers                  ESC-3
+  ids.json                  # reference registry            REF-2
+  log/events.jsonl          # everything, append-only       HQ-8
+  log/*.md, log/chat/       # readable copies               HQ-8
+  credentials-needed.md     #                               INT-2
+  bin/hook.mjs              # safety hook                   SEC-6, SEC-7, DAY-3
+.claude/agents/sf-<id>.md   # one subagent per member       TEAM-2, TEAM-9
+.claude/skills/sf-*/        # /sf-start, /sf-plan-epic …
+.mcp.json                   # storyfront MCP server (local)  HQ-9
+docs/design/<area>/         # design packs                  TEAM-7
 ```
 
-In this repo:
+In this repo: `src/hq/` (event store, rules, MCP tools, server), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-```
-hq/            # HQ server, web app, MCP server
-plugin/        # Claude Code plugin: /company commands, lead skill, agent templates, hooks
-codex/         # Codex setup (after v0)
-templates/     # team.yaml, identity and memory files, permission profiles
-bmad-module/   # BMad module packaging and bridge (anchors, epic import)
-examples/      # sample app built with it (OSS-10)
-```
+**In v0:** FLOW-1–5, TEAM-1–10, TKT-1–6, HQ-1–9, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–8, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
-**v0 scope**
-1. Templates: `team.yaml` (roles, domains, models), identity and memory files, and a permission profile per role.
-2. HQ server and MCP tools: chat, tickets, checkpoints, decisions, escalations, and port and database allocation.
-3. HQ web app: dashboard, chat, board, inbox, reference linking, and Preview with click-to-comment.
-4. Claude Code plugin: `/company start`, End day and Stop now; the lead's dispatch loop; a worktree per agent; and the merge queue into the epic branch.
-5. BMad bridge: anchors on PRD and epics, and epics imported as tickets, installable as a BMad module.
-6. A sample app built from start to finish, with time and usage numbers.
+**Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)).
 
-**Later:** Codex adapter, importing in-progress BMad projects ([FLOW-7](#flow-7)), existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison, deploy scripts per cloud, and a headless mode on an API key for overnight runs.
+Two v0 gates are honour-based: agents report their own check results (the merge queue re-runs the checks after merging), and a time limit per ticket isn't enforced yet (the attempt limit is).
 
 ## 18. Known limits
 
 - An agent's memory is files it re-reads at startup, not real recall. How well it remembers depends on compaction ([TEAM-4](#team-4)).
-- Your Claude Code session has to stay open while the team works. If it closes, `/company start` picks up from HQ.
+- Your Claude Code session has to stay open while the team works. If it closes, `/sf-start` picks up from HQ.
+- Diagrams in HQ's file viewer load Mermaid from a CDN; offline, the diagram source is shown instead.
 - Parallel work still produces merge conflicts, which the lead resolves ([MRG-1](#mrg-1)).
 - Autonomous work isn't automatically correct. The gates reduce rework but don't eliminate it.
 - The iOS Simulator needs a Mac.

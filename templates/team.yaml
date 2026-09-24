@@ -1,0 +1,55 @@
+# Storyfront team — who works on this project.
+# Edit this, then run: npx storyfront staff
+# Each member becomes a Claude Code subagent (.claude/agents/sf-<id>.md)
+# with its own identity and memory (.storyfront/agents/<id>/).
+
+project:
+  name: My app
+  key: APP            # ticket prefix: APP-1, APP-2…
+
+owner: You            # how HQ refers to you
+max_parallel: 3       # agents working at the same time (your Claude plan's limits are shared)
+
+# Commands every ticket must pass before review, and again after each merge.
+checks:
+  # - npm run typecheck
+  # - npm run lint
+  # - npm test
+
+preview:
+  url:                # e.g. http://localhost:4100 (defaults to the integration web port)
+
+ports:
+  base: 4100          # integration app uses 4100-4102; agent N uses base + N*10
+
+limits:
+  attempts: 3         # a ticket escalates after this many starts
+  memory_chars: 8000  # each memory file must stay under this (forces summarising)
+
+allow_push: false     # agents never push unless you set this to true
+
+team:
+  - id: lead
+    role: Tech lead / PM
+    model: opus
+
+  - id: maya
+    role: UX designer
+    domain: [design system, screens, navigation]
+    model: sonnet
+
+  - id: arjun
+    role: Backend developer
+    domain: [Node API, auth, payments]
+    also: [Postgres]
+    model: sonnet
+
+  - id: lena
+    role: Frontend developer
+    domain: [Next.js pages, Expo screens]
+    model: sonnet
+
+  - id: qa
+    role: QA engineer
+    domain: [E2E tests, screenshots, reviews]
+    model: sonnet

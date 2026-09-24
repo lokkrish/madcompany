@@ -1,0 +1,4 @@
+node_modules/
+.storyfront/run/
+.storyfront/worktrees/
+*.log

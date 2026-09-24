@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Storyfront HQ</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <nav class="side" aria-label="Main">
+        <div class="brand"><img src="/icon.svg" alt="" width="22" height="22" /> <span>Storyfront <b>HQ</b></span></div>
+        <div class="project" id="project-name"></div>
+        <a href="#/" data-nav="dashboard">Dashboard</a>
+        <a href="#/chat/general" data-nav="chat">Chat</a>
+        <a href="#/board" data-nav="board">Board</a>
+        <a href="#/inbox" data-nav="inbox">Inbox <span class="badge" id="inbox-badge" hidden></span></a>
+        <a href="#/decisions" data-nav="decisions">Decisions</a>
+        <a href="#/team" data-nav="team">Team</a>
+        <a href="#/preview" data-nav="preview">Preview</a>
+        <div class="side-foot"><span class="dot" id="live-dot"></span> <span id="live-text">Connecting…</span></div>
+      </nav>
+      <main id="main" tabindex="-1"></main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

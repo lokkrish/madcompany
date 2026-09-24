@@ -1,0 +1,43 @@
+{
+  "name": "storyfront",
+  "version": "0.1.0",
+  "description": "A UI-first AI dev team that runs inside your Claude Code session, with a local HQ app for chat, board, decisions and dashboard. Compatible with BMad Method v6.",
+  "type": "module",
+  "bin": {
+    "storyfront": "bin/storyfront.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "ui",
+    "templates",
+    "skills",
+    ".claude-plugin",
+    "docs/*.md",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "hq": "node bin/storyfront.js hq"
+  },
+  "keywords": [
+    "claude-code",
+    "agents",
+    "multi-agent",
+    "bmad",
+    "ui-first",
+    "mcp"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "marked": "^18.0.14",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}
