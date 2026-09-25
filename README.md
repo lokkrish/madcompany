@@ -12,7 +12,7 @@ Compatible with BMad Method v6. Not affiliated with BMad Code, LLC.
 - **You see the app as it's built.** Screens come first, on mock data; screenshots land on every UI ticket.
 - **No walls of text.** Questions reach you as one-line, multiple-choice items with a recommended answer, and your answers are saved so nobody asks twice.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7: click it and HQ opens the exact line.
-- **Agents have roles and memory.** Each has a domain, a work memory and a comms memory, plus its own git worktree, ports and database.
+- **Agents have roles, memory and a model you choose.** Each has a domain, a work memory and a comms memory, plus its own git worktree, ports and database. Pick Opus, Sonnet or Haiku per agent from HQ's Team page.
 
 ## How it works
 

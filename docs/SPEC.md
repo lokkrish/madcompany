@@ -86,8 +86,7 @@ Example roster (`.madcompany/team.yaml`):
 max_parallel: 3            # agents working at the same time
 team:
   - id: lead
-    role: Tech lead / PM
-    model: opus
+    role: Tech lead / PM     # runs on your session's model (/model)
   - id: maya
     role: UX designer
     domain: [design system, navigation, onboarding flows]
@@ -118,7 +117,7 @@ team:
 | <a id="team-7"></a>TEAM-7 | Before coding, a developer publishes a design pack in `docs/design/<area>/`: module/class sketch and logic flow (Mermaid), API contract (OpenAPI), DB schema and key decisions. Any agent can read it. |
 | <a id="team-8"></a>TEAM-8 | Each design doc has an owner and a status: draft → agreed → frozen. It becomes "agreed" once every agent that uses it approves. Changing an agreed doc opens a thread tagging all of them. |
 | <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree, on a branch per ticket (`mc/<ticket>`). The lead merges ([MRG-1](#mrg-1)). |
-| <a id="team-10"></a>TEAM-10 | Each role sets its model in `team.yaml`: a stronger one for the lead and architecture work, a cheaper one for QA and routine tickets. This makes the plan's usage limits last longer. |
+| <a id="team-10"></a>TEAM-10 | You choose each member's model (Opus, Sonnet, Haiku, Fable or a full model ID) in HQ's Team page or in `team.yaml`: a stronger one for architecture-heavy work, a cheaper one for QA and routine tickets. This makes the plan's usage limits last longer. The lead runs on your Claude Code session's model (`/model`). |
 
 ## 5. Tickets, blocking and resume
 

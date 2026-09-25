@@ -167,7 +167,7 @@ function dashboard() {
     .map(
       (m) => `<tr>
       <td><div class="who">${avatar(m.id)} <a href="#/team/${esc(m.id)}">${esc(m.id)}</a></div></td>
-      <td class="sub">${esc(m.role)}</td>
+      <td class="sub">${esc(m.role)} · ${esc(m.lead ? 'your session' : m.model)}</td>
       <td><span class="row"><span class="dot ${m.status}"></span>${esc(m.status)}</span></td>
       <td>${m.ticket ? `${idLink(m.ticket)} <span class="sub">${esc(S.tickets[m.ticket]?.title ?? '')}</span>` : '<span class="sub">–</span>'}</td>
       <td class="time">${ago(m.lastActivity)}</td></tr>`,
@@ -362,6 +362,15 @@ function decisions() {
   }</div>`;
 }
 
+function modelPicker(m) {
+  if (m.lead) return `<div class="sub">Model: your Claude Code session's (change it with <code>/model</code>)</div>`;
+  const choices = S.config.models.includes(m.model) ? S.config.models : [...S.config.models, m.model];
+  const label = { opus: 'Opus (strongest)', sonnet: 'Sonnet (balanced)', haiku: 'Haiku (fastest, cheapest)', fable: 'Fable', inherit: "Same as your session" };
+  return `<label class="row sub">Model <select data-model="${esc(m.id)}" aria-label="Model for ${esc(m.id)}">${choices
+    .map((c) => `<option value="${esc(c)}" ${c === m.model ? 'selected' : ''}>${esc(label[c] ?? c)}</option>`)
+    .join('')}</select></label>`;
+}
+
 function team(r) {
   const focus = r.parts[1];
   const cards = S.dashboard.team
@@ -371,7 +380,8 @@ function team(r) {
       return `<div class="card stack" id="x-${esc(m.id)}">
       <div class="row">${avatar(m.id)}<b>${esc(m.id)}</b>${m.lead ? pill('in_review', 'lead') : ''}<span class="grow"></span><span class="row"><span class="dot ${m.status}"></span>${esc(m.status)}</span></div>
       <div>${esc(m.role)}</div>
-      <div class="sub">${[m.domain.length && `Domain: ${esc(m.domain.join(', '))}`, m.also.length && `also ${esc(m.also.join(', '))}`, `model ${esc(m.model)}`].filter(Boolean).join(' · ')}</div>
+      <div class="sub">${[m.domain.length && `Domain: ${esc(m.domain.join(', '))}`, m.also.length && `also ${esc(m.also.join(', '))}`].filter(Boolean).join(' · ')}</div>
+      ${modelPicker(m)}
       <div>${m.ticket ? `${m.status === 'blocked' ? 'Parked' : 'Working on'} ${idLink(m.ticket)}` : '<span class="sub">No current ticket</span>'} · <a href="#/board?agent=${esc(m.id)}">their tickets</a></div>
       ${envInfo ? `<div class="sub mono">ports web ${envInfo.ports.web}, api ${envInfo.ports.api}, expo ${envInfo.ports.expo} · db ${esc(envInfo.db)}</div>` : ''}
       ${h ? `<div class="callout"><b>Last handoff</b> ${clock(h.ts)}<br>Done: ${linkify(h.done)}<br>Next: ${linkify(h.next)}${h.waitingOn ? `<br>Waiting on: ${linkify(h.waitingOn)}` : ''}</div>` : ''}
@@ -525,6 +535,9 @@ function wire(r) {
       const m = await api(`/api/memory/${encodeURIComponent(b.dataset.memory)}`);
       box.innerHTML = ['identity', 'work', 'comms'].map((k) => `<h3>${k}</h3><pre>${esc(m[k] || '(empty)')}</pre>`).join('');
     }),
+  );
+  $main.querySelectorAll('select[data-model]').forEach((sel) =>
+    sel.addEventListener('change', () => act(() => api('/api/team/model', { id: sel.dataset.model, model: sel.value }))),
   );
   $main.querySelectorAll('[data-size]').forEach((b) =>
     b.addEventListener('click', () => {

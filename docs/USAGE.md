@@ -44,7 +44,7 @@ project: { name: Tiny Tasks, key: TT }
 max_parallel: 3
 checks: [npm run typecheck, npm run lint, npm test]
 team:
-  - { id: lead, role: Tech lead / PM, model: opus }
+  - { id: lead, role: Tech lead / PM }   # runs on your session's model
   - { id: maya, role: UX designer, domain: [design system, screens] }
   - { id: arjun, role: Backend developer, domain: [Node API, auth], also: [Postgres] }
   - { id: lena, role: Frontend developer, domain: [Expo screens] }
@@ -52,6 +52,8 @@ team:
 ```
 
 `npx madcompany staff` then writes `.claude/agents/mc-<id>.md` for everyone except the lead (your own session is the lead). **Restart Claude Code once** so the new agents load.
+
+**Models:** each member's `model` can be `opus`, `sonnet`, `haiku`, `fable`, `inherit`, or a full model ID. Change it any time in HQ → **Team** (a dropdown per agent; it updates `team.yaml` and the agent file), or edit `team.yaml` and run `npx madcompany staff`. It applies the next time that agent starts; if not, restart Claude Code. The lead is your own session, so set its model with `/model opus` in Claude Code, or start it with `claude --model opus`.
 
 Options: `profile: reviewer` makes a member read-only. `allow_push: true` lets agents push. `limits.attempts` and `limits.memory_chars` set the retry and memory limits. `ports.base` sets where port numbers start.
 

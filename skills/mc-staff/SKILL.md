@@ -10,4 +10,4 @@ description: Set up or change the madcompany team. Choose roles, domain expertis
 3. Ask the human to confirm or change it. The human decides the headcount.
 4. Write `.madcompany/team.yaml`. Keep the project `key`, `checks` (the repo's real typecheck/lint/test commands) and `ports`. Use a stronger model for the lead and architecture-heavy roles, and a cheaper one for QA and routine work.
 5. Run `npx madcompany staff`. It writes `.claude/agents/mc-<id>.md` for every member except the lead, plus their identity and memory files, and removes agents that left the team.
-6. Tell the human: restart Claude Code once so the new agents load, then `/mc-plan-epic`.
+6. Tell the human: restart Claude Code once so the new agents load, then `/mc-plan-epic`. They can change any agent's model later in HQ → Team, and the lead's with `/model`.

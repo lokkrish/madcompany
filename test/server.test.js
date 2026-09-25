@@ -116,3 +116,21 @@ test('state, views and registry are written for humans and git', async () => {
   assert.equal(ids['app-1'].file, '.madcompany/log/board.md');
   assert.ok(fs.existsSync(path.join(ctx.paths.chat, 'general.md')));
 });
+
+test("you can change an agent's model from HQ; the lead points you to /model", async () => {
+  fs.mkdirSync(path.join(ctx.root, '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(ctx.paths.team, fs.readFileSync(ctx.paths.team, 'utf8').replace('team:', '# keep this comment\nteam:'));
+  const post = (body) => fetch(`${base}/api/team/model`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify(body) });
+  const res = await post({ id: 'arjun', model: 'opus' });
+  assert.equal(res.status, 200);
+  const yaml = fs.readFileSync(ctx.paths.team, 'utf8');
+  assert.match(yaml, /# keep this comment/);
+  assert.match(yaml, /id: arjun[\s\S]*?model: opus/);
+  assert.match(fs.readFileSync(path.join(ctx.root, '.claude', 'agents', 'mc-arjun.md'), 'utf8'), /^model: opus$/m);
+  const state = await (await fetch(`${base}/api/state`)).json();
+  assert.equal(state.dashboard.team.find((m) => m.id === 'arjun').model, 'opus');
+  assert.equal((await post({ id: 'arjun', model: 'gpt-9' })).status, 400);
+  assert.equal((await post({ id: 'arjun', model: 'claude-sonnet-5' })).status, 200);
+  const lead = await (await post({ id: 'lead', model: 'haiku' })).json();
+  assert.match(lead.error, /\/model/);
+});

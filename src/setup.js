@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './config.js';
+import YAML from 'yaml';
+import { loadConfig, member, McError } from './config.js';
 import { ensureDir } from './paths.js';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -188,4 +189,27 @@ export function staff(paths, { log = console.log } = {}) {
     }
   }
   return cfg;
+}
+
+export const MODEL_CHOICES = ['opus', 'sonnet', 'haiku', 'fable', 'inherit'];
+
+/**
+ * Change one member's model (TEAM-10): edits team.yaml in place, keeping your
+ * comments, and regenerates that member's Claude Code agent file.
+ */
+export function setMemberModel(paths, id, model) {
+  const value = String(model ?? '').trim();
+  if (!MODEL_CHOICES.includes(value) && !/^claude-[a-z0-9.-]+(\[[a-z0-9]+\])?$/.test(value)) {
+    throw new McError(`Unknown model "${value}". Use ${MODEL_CHOICES.join(', ')}, or a full model ID like claude-sonnet-5.`);
+  }
+  const cfg = loadConfig(paths);
+  const m = member(cfg, id);
+  if (!m) throw new McError(`No team member "${id}".`);
+  if (m.lead) throw new McError('The lead is your own Claude Code session: change its model with /model in Claude Code (or start it with claude --model <name>).');
+  const doc = YAML.parseDocument(fs.readFileSync(paths.team, 'utf8'));
+  const item = doc.get('team').items.find((it) => it.get('id') === id);
+  item.set('model', value);
+  fs.writeFileSync(paths.team, doc.toString({ flowCollectionPadding: false }));
+  staff(paths, { log: () => {} });
+  return { id, model: value };
 }

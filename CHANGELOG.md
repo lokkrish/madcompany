@@ -11,5 +11,6 @@ First version.
 - Merge queue: epic branches, checks re-run after each merge, revert and reopen on failure
 - BMad bridge: anchors requirement, epic and story IDs, links bare references, imports stories as tickets with dependencies
 - Claude Code integration: `/mc-*` skills and one subagent per team member, each in its own worktree
+- Per-agent model picker in HQ's Team page (writes `team.yaml` and regenerates the agent)
 - `madcompany demo` for a sample project
 - File formats: `.madcompany/team.yaml`, `log/events.jsonl` (append-only; readable copies in `log/*.md`), `ids.json`, `agents/<id>/{identity,work,comms}.md`

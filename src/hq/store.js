@@ -252,6 +252,7 @@ export function describeEvent(ev) {
     case 'workday.stop': return 'pressed Stop now';
     case 'workday.end': return 'closed the workday';
     case 'fact.add': return `recorded ${d.id}: ${clip(d.text)}`;
+    case 'team.model': return `set ${d.agent}'s model to ${d.model}`;
     default: return null;
   }
 }

@@ -12,6 +12,7 @@ import { createNotices } from './notices.js';
 import { createViewWriter } from './views.js';
 import { buildMcpServer } from './mcp.js';
 import { renderCode, renderMarkdown } from './render.js';
+import { setMemberModel, MODEL_CHOICES } from '../setup.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(here, '..', '..', 'ui');
@@ -121,6 +122,14 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       if (p === '/api/messages') return ok(res, () => core.post('you', { channel: body.channel, text: body.text }));
       if (p === '/api/answer') return ok(res, () => core.answer('you', body.q, body.answer));
       if (p === '/api/change') return ok(res, () => core.change({ text: body.text }));
+      if (p === '/api/team/model') {
+        return ok(res, () => {
+          const out = setMemberModel(paths, body.id, body.model);
+          config.team.find((m) => m.id === out.id).model = out.model;
+          store.append('team.model', 'you', { agent: out.id, model: out.model });
+          return out;
+        });
+      }
       if (p === '/api/workday') {
         const fn = { end: core.requestEndDay, stop: core.stopNow }[body.action];
         if (!fn) return json(res, 400, { error: 'action must be end or stop' });
@@ -144,7 +153,7 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     return {
       seq: s.seq,
       dashboard: core.dashboard(),
-      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel },
+      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel, models: MODEL_CHOICES },
       tickets: s.tickets,
       messages: s.messages.slice(-2000),
       decisions: s.decisions,
