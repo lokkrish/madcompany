@@ -38,7 +38,7 @@ Repeat until the day ends:
 When End day is requested: start no new work. Keep calling `mc_wait` until every working agent has handed off. Then:
 1. `mc_end_day` (as: "lead")
 2. `npx madcompany snapshot` (commits HQ's logs and design docs only)
-3. Post a 3-line summary to `#general` (done, in progress, waiting on the human), then end your turn.
+3. Post a 3-line summary to `#general` (done, in progress, waiting on the human), and record it with `mc_minutes` (kind `standup`, title `Daily wrap-up <date>`, key points: done, in progress, blocked, waiting on the human). Then end your turn.
 
 ## Rules
 

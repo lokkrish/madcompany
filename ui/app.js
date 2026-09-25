@@ -57,7 +57,7 @@ function linkify(text) {
   s = s.replace(/https?:\/\/[^\s<]+/g, (u) => hold(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`));
   s = s.replace(MENTION, (m) => {
     const e = IDS[normalizeKey(m)];
-    return e ? hold(`<a href="${esc(hrefFor(e))}" title="${esc(e.title ?? '')}">${m}</a>`) : m;
+    return e ? hold(`<a href="${esc(hrefFor(e))}" title="${esc(e.title ?? '')}"${e.external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${m}</a>`) : m;
   });
   s = s.replace(/(^|[\s(])((?:\.{0,2}\/)?(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,8})(?::(\d+))?/gi, (m, pre, p, line) =>
     `${pre}${hold(`<a href="#/file/${esc(p.replace(/^\.\//, ''))}${line ? `?l=${line}` : ''}">${p}${line ? `:${line}` : ''}</a>`)}`,
@@ -117,10 +117,11 @@ let lastView = '';
 function render() {
   if (!S) return;
   const r = route();
-  const name = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name;
+  const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name;
+  const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : viewName; // sidebar highlight
   document.querySelectorAll('.side a').forEach((a) => a.classList.toggle('on', a.dataset.nav === name));
-  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView };
-  const view = views[name] ?? dashboard;
+  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView };
+  const view = views[viewName] ?? dashboard;
   const key = location.hash;
   const keepScroll = key === lastView;
   const scroll = $main.scrollTop;
@@ -420,6 +421,8 @@ function fileView(r) {
         f.kind === 'markdown' ? `<div class="card doc">${f.html}</div>`
         : f.kind === 'text' ? `<div class="code">${f.html}</div>`
         : f.kind === 'image' ? `<img src="${esc(f.src)}" alt="${esc(rel)}" style="max-width:100%">`
+        : f.kind === 'html' ? `<p class="sub">Mockup, shown sandboxed. <a href="${esc(f.src)}" target="_blank" rel="noopener">Open in a new tab ↗</a></p><iframe class="frame" sandbox="allow-scripts allow-forms" src="${esc(f.src)}" title="${esc(rel)}"></iframe>`
+        : f.kind === 'pdf' ? `<iframe class="frame" src="${esc(f.src)}" title="${esc(rel)}"></iframe>`
         : '<p class="empty">This file is too big to show.</p>';
       $main.innerHTML = `<div class="crumbs">${esc(rel)}</div>${body}`;
       renderMermaid();
@@ -435,6 +438,122 @@ function fileView(r) {
     .catch((e) => {
       $main.innerHTML = `<div class="crumbs">${esc(rel)}</div><p class="empty">${esc(e.message)}</p>`;
     });
+  return new Promise(() => {});
+}
+
+// ---------- Library: everything about the project, by category ----------
+const CAT_ICONS = { discovery: '💡', requirements: '📋', ux: '🎨', architecture: '🏗️', delivery: '🚚', meetings: '🗒️', conversations: '💬', links: '🔗', records: '📁', other: '📄' };
+
+function libItem(it, catId) {
+  if (catId === 'meetings') {
+    return `<a class="lib-item" href="#/file/${esc(it.file)}?a=${esc(it.id.toLowerCase())}"><div class="row"><b>${esc(it.id)}</b> ${esc(it.title)}<span class="grow"></span><span class="time">${esc(it.date)}</span></div><div class="sub">${esc(it.summary)}</div><div class="sub">${esc((it.attendees ?? []).join(', '))}</div></a>`;
+  }
+  if (catId === 'conversations') {
+    return `<a class="lib-item" href="#/session/${esc(it.id)}"><div class="row"><b>${esc(it.title)}</b><span class="grow"></span><span class="time">${clock(it.started)}</span></div><div class="sub">${it.yourMessages} messages from you${it.commands.length ? ` · ${it.commands.map((c) => `<code>${esc(c)}</code>`).join(' ')}` : ''}</div></a>`;
+  }
+  if (catId === 'links') {
+    const host = (() => { try { return new URL(it.url).host; } catch { return it.url; } })();
+    const src = it.sources?.length ? `<div class="sub">Found in ${it.sources.map((x) => `<a href="${esc(x.href)}">${esc(x.label)}</a>`).join(', ')}</div>` : it.note ? `<div class="sub">${linkify(it.note)}</div>` : '';
+    return `<div class="lib-item"><div class="row"><a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(it.title ?? host)}</b></a>${it.saved ? pill('agreed', 'saved') : ''}<span class="grow"></span><span class="sub">${esc(host)}</span></div>${src}</div>`;
+  }
+  if (it.label === 'Screenshot') {
+    return `<a class="lib-shot" href="#/ticket/${esc(it.ticket)}" title="${esc(it.ticket)} ${esc(it.title)}"><img src="/shots/${esc(it.path.split('/').pop())}" alt="${esc(it.title)}" loading="lazy"><span>${esc(it.ticket)}</span></a>`;
+  }
+  return `<a class="lib-item" href="#/file/${esc(it.path)}"><div class="row"><b>${esc(it.title)}</b>${it.status ? pill(it.status) : ''}<span class="grow"></span><span class="time">${ago(it.updated)}</span></div><div class="sub mono">${esc(it.path)}${it.owner ? ` · owner ${esc(it.owner)}` : ''}</div></a>`;
+}
+
+function libGroups(c) {
+  if (!c.groups.length) return '<p class="empty">Nothing here yet.</p>';
+  return c.groups
+    .map((g) => {
+      const shots = g.items[0]?.label === 'Screenshot';
+      return `<div class="lib-group"><h3>${esc(g.label)} <span class="count">${g.items.length}</span></h3><div class="${shots ? 'lib-shots' : 'lib-list'}">${g.items.map((it) => libItem(it, c.id)).join('')}</div></div>`;
+    })
+    .join('');
+}
+
+function libraryView(r) {
+  const current = r.parts[1] ?? '';
+  api('/api/library')
+    .then((lib) => {
+      const rail = lib.categories
+        .map((c) => `<a href="#/library/${c.id}" class="${c.id === current ? 'on' : ''} ${c.count ? '' : 'dim'}"><span>${CAT_ICONS[c.id] ?? '•'} ${esc(c.title)}</span><span class="count">${c.count}</span></a>`)
+        .join('');
+      const cat = lib.categories.find((c) => c.id === current);
+      let body;
+      if (cat) {
+        const addLink = cat.id === 'links'
+          ? `<form class="row lib-add" data-form="link"><input name="title" placeholder="Title (e.g. Checkout flow artifact)" aria-label="Link title"><input name="url" placeholder="https://claude.ai/…" aria-label="URL" style="flex:2"><button class="primary" type="submit">Save link</button></form>`
+          : '';
+        const minutesHint = cat.id === 'meetings' ? '<p class="sub">After any planning conversation in Claude Code, run <code>/mc-minutes</code> to add its minutes here.</p>' : '';
+        body = `<div class="card"><h2>${CAT_ICONS[cat.id] ?? ''} ${esc(cat.title)}</h2><p class="sub">${esc(cat.description)}</p>${minutesHint}${addLink}${libGroups(cat)}</div>`;
+      } else {
+        body = `<div class="lib-tiles">${lib.categories
+          .filter((c) => c.count || ['requirements', 'ux', 'meetings', 'links'].includes(c.id))
+          .map((c) => {
+            const top = c.groups.flatMap((g) => g.items).slice(0, 3);
+            const names = top.map((it) => `<li>${esc(it.title ?? it.id ?? it.url ?? '')}</li>`).join('');
+            return `<a class="card lib-tile" href="#/library/${c.id}"><div class="row"><span class="lib-icon">${CAT_ICONS[c.id] ?? ''}</span><h2 style="margin:0">${esc(c.title)}</h2><span class="grow"></span><span class="big" style="font-size:20px">${c.count}</span></div><p class="sub">${esc(c.description)}</p>${names ? `<ul>${names}</ul>` : '<p class="empty">Nothing yet.</p>'}</a>`;
+          })
+          .join('')}</div>`;
+      }
+      $main.innerHTML = `<div class="top"><h1 class="grow">Library</h1><form data-form="search" class="row"><input name="q" placeholder="Search everything…" aria-label="Search everything" style="width:280px"></form></div><div class="lib"><nav class="card lib-rail" aria-label="Library categories"><a href="#/library" class="${current ? '' : 'on'}"><span>🗂️ All</span></a>${rail}</nav><div>${body}</div></div>`;
+      wireLibrary();
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
+}
+
+function wireLibrary() {
+  $main.querySelector('form[data-form="search"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = e.target.q.value.trim();
+    if (q) location.hash = `#/search?q=${encodeURIComponent(q)}`;
+  });
+  $main.querySelector('form[data-form="link"]')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await api('/api/links', { title: f.title.value.trim(), url: f.url.value.trim() });
+      render();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+}
+
+function sessionView(r) {
+  const id = r.parts[1];
+  api(`/api/session/${encodeURIComponent(id)}`)
+    .then((sess) => {
+      const msgs = sess.messages.slice(-1500);
+      $main.innerHTML = `<div class="top"><div class="grow"><div class="sub"><a href="#/library/conversations">Conversations</a></div><h1>${esc(sess.title)}</h1><div class="sub">Started ${clock(sess.started)} · ${sess.yourMessages} messages from you · Claude Code session <code>${esc(sess.id.slice(0, 8))}</code></div></div></div>
+      <div class="card">${sess.messages.length > msgs.length ? `<p class="sub">Showing the last ${msgs.length} messages.</p>` : ''}${msgs
+        .map((m) => `<div class="msg ${m.role === 'you' ? 'you' : ''}">${m.role === 'you' ? avatar('you') : '<span class="avatar" style="background:#d97757">C</span>'}<div class="body"><div><b>${m.role === 'you' ? 'You' : 'Claude'}</b> <span class="time">${clock(m.ts)}</span></div><div class="text">${linkify(m.text.length > 4000 ? `${m.text.slice(0, 4000)}…` : m.text)}</div></div></div>`)
+        .join('')}</div>`;
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
+}
+
+function searchView(r) {
+  const q = r.query.get('q') ?? '';
+  api(`/api/search?q=${encodeURIComponent(q)}`)
+    .then(({ results }) => {
+      const mark = (t) => esc(t).replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[&<>"']/g, (c) => esc(c)), 'gi'), (m) => `<mark>${m}</mark>`);
+      const groups = {};
+      for (const x of results) (groups[x.type] ??= []).push(x);
+      const order = ['Planning', 'Design', 'Meeting', 'Conversation', 'Decision', 'Question', 'Fact', 'Ticket', 'Link', 'Chat', 'Team log'];
+      const html = Object.keys(groups)
+        .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+        .map((t) => `<div class="lib-group"><h3>${esc(t)} <span class="count">${groups[t].length}</span></h3><div class="lib-list">${groups[t]
+          .map((x) => `<a class="lib-item" href="${esc(x.href)}"${x.external ? ' target="_blank" rel="noopener noreferrer"' : ''}><b>${esc(x.title)}</b>${x.path ? ` <span class="sub mono">${esc(x.path)}</span>` : ''}<div class="sub">${mark(x.snippet)}</div></a>`)
+          .join('')}</div></div>`)
+        .join('');
+      $main.innerHTML = `<div class="top"><h1 class="grow">Search</h1><form data-form="search" class="row"><input name="q" value="${esc(q)}" aria-label="Search everything" style="width:280px"></form></div><div class="card"><p class="sub">${results.length} result${results.length === 1 ? '' : 's'} for “${esc(q)}” across planning files, design docs, meetings, conversations, decisions, tickets, links and chat.</p>${html || '<p class="empty">Nothing found.</p>'}</div>`;
+      wireLibrary();
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
   return new Promise(() => {});
 }
 
@@ -556,6 +675,11 @@ async function act(fn) {
   }
 }
 
+document.getElementById('side-search')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = e.target.q.value.trim();
+  if (q) location.hash = `#/search?q=${encodeURIComponent(q)}`;
+});
 window.addEventListener('hashchange', render);
 refresh()
   .then(live)

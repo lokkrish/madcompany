@@ -696,6 +696,61 @@ export function createCore({ store, config, paths }) {
     return String(config.database_url ?? 'postgres://madcompany:madcompany@localhost:5433/{db}').replace('{db}', db);
   }
 
+  // ---------- minutes of meetings & links ----------
+  const KINDS = ['planning', 'ui-sprint', 'demo', 'standup', 'review', 'other'];
+  function minutes(as, f = {}) {
+    actor(as, { allowHuman: true, allowCli: true });
+    if (!f.title || !f.summary) throw new McError('Minutes need a title and a summary.');
+    const kind = KINDS.includes(f.kind) ? f.kind : 'other';
+    const id = nextId('mom', 'MOM');
+    const date = new Date().toISOString().slice(0, 10);
+    const slug = String(f.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'meeting';
+    const rel = `.madcompany/meetings/${date}-${id.toLowerCase()}-${slug}.md`;
+    // links are written from the project root; the minutes file lives two folders down
+    const fromRoot = (t) => String(t).replace(/\]\((?!https?:|#|\/|\.\.\/)([^)\s]+)\)/g, '](../../$1)');
+    const list = (title, items) => (items?.length ? [`## ${title}`, '', ...items.map((x) => `- ${fromRoot(typeof x === 'string' ? x : `${x.what}${x.who ? ` (${x.who})` : ''}`)}`), ''] : []);
+    const body = [
+      `# <a id="${id.toLowerCase()}"></a>${id}: ${f.title}`,
+      '',
+      `- **Date:** ${date} · **Kind:** ${kind}`,
+      `- **Attendees:** ${(f.attendees ?? []).join(', ') || 'you, lead'}`,
+      f.source ? `- **Source:** ${f.source}` : null,
+      '',
+      '## Summary',
+      '',
+      String(f.summary),
+      '',
+      ...list('Key points', f.keyPoints),
+      ...list('Decisions', f.decisions),
+      ...list('Action items', f.actions),
+      ...list('Open questions', f.openQuestions),
+      ...list('Links', f.links),
+    ].filter((l) => l !== null);
+    ensureDir(path.join(paths.dir, 'meetings'));
+    fs.writeFileSync(path.join(paths.root, rel), body.join('\n'));
+    store.append('minutes.add', as, { id, title: String(f.title), kind, date, file: rel, attendees: f.attendees ?? [], summary: String(f.summary).slice(0, 300) });
+    return { ok: true, id, file: rel };
+  }
+  function addLink(as, f = {}) {
+    actor(as, { allowHuman: true, allowCli: true });
+    const url = String(f.url ?? '').trim();
+    if (!/^https?:\/\/\S+$/.test(url)) throw new McError('A link needs an http(s) URL.');
+    if (s().links.some((l) => l.url === url)) return { ok: true, existing: true };
+    const id = nextId('link', 'L');
+    store.append('link.add', as, { id, title: String(f.title || url).slice(0, 140), url, kind: f.kind || kindOfUrl(url), note: f.note ?? '' });
+    return { ok: true, id };
+  }
+  function kindOfUrl(u) {
+    if (/claude\.ai\/(code\/)?(artifact|public\/artifacts)|claude\.site\/artifacts/i.test(u)) return 'Claude artifact';
+    if (/figma\.com/i.test(u)) return 'Figma';
+    if (/github\.com/i.test(u)) return 'GitHub';
+    if (/docs\.google\.com|drive\.google\.com/i.test(u)) return 'Google';
+    if (/notion\.(so|site)/i.test(u)) return 'Notion';
+    if (/miro\.com/i.test(u)) return 'Miro';
+    if (/loom\.com|youtube\.com|youtu\.be/i.test(u)) return 'Video';
+    return 'Web';
+  }
+
   // ---------- feedback & change requests ----------
   function feedback(f = {}) {
     if (!f.text?.trim()) throw new McError('Empty comment.');
@@ -764,6 +819,8 @@ export function createCore({ store, config, paths }) {
     ticket,
     feedback,
     change,
+    minutes,
+    addLink,
     STATUSES,
   };
 }

@@ -134,7 +134,7 @@ Statuses: `To do → In progress → In review → Done`, with `Blocked` entered
 
 ## 6. HQ: the team's app
 
-A local web app running on your machine. Its screens: **Dashboard, Chat, Board, Decisions, Inbox, Team, Preview.**
+A local web app running on your machine. Its screens: **Dashboard, Chat, Board, Library, Inbox, Decisions, Team, Preview**, plus search.
 
 Dashboard sketch:
 
@@ -167,6 +167,12 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="hq-7"></a>HQ-7 | **Preview:** screenshots per ticket and epic, plus a link to the running dev app. |
 | <a id="hq-8"></a>HQ-8 | Everything is stored in an append-only event log (`.madcompany/log/events.jsonl`), with readable markdown copies next to it (board, chat, decisions, questions). History survives when HQ is off and is versioned with the code (`npx madcompany snapshot`). |
 | <a id="hq-9"></a>HQ-9 | Agents use HQ through an MCP server with tools to post, read, claim and update tickets, checkpoint, log decisions and escalate. It works in both Claude Code and Codex ([D1](#d1)). |
+| <a id="hq-10"></a>HQ-10 | **Library:** everything about the project in one place, sorted by planning stage: Discovery (brief, research, brainstorming), Requirements (PRD), UX & UI (UX spec, HTML mockups, images, screenshots), Architecture & design (architecture, tech specs, API contracts, data models, sketches), Epics & delivery, Meetings, Conversations, Links, Records. Each category shows counts and labelled groups. Files are found on disk; nothing to maintain. |
+| <a id="hq-11"></a>HQ-11 | **Search** across planning files, design docs, meetings, conversations, decisions, questions, facts, tickets, links and chat, from the sidebar. |
+| <a id="hq-12"></a>HQ-12 | **Minutes of meetings (MoM):** every session with you (planning with BMad agents, UI sprints, demos, daily wrap-ups) can be recorded with `/mc-minutes`: key points, decisions, action items, open questions and links, saved as `.madcompany/meetings/*.md` with a clickable `MOM-n` ID. The UI sprint and the daily wrap-up record minutes automatically. |
+| <a id="hq-13"></a>HQ-13 | **Links:** Claude artifacts, Figma files, docs and videos, saved by you or agents (`mc_link`) or found automatically in planning files, chat and decisions. Claude artifacts are listed first. |
+| <a id="hq-14"></a>HQ-14 | **Conversations:** your Claude Code sessions in the project (including the BMad planning agents) are listed and readable in HQ, without tool noise, and searchable. `library.sessions: false` in `team.yaml` turns this off. |
+| <a id="hq-15"></a>HQ-15 | HTML mockups and SVGs open sandboxed, so they can't reach HQ's API. |
 
 ## 7. Clickable references
 
@@ -330,7 +336,7 @@ docs/design/<area>/         # design packs                  TEAM-7
 
 In this repo: `src/hq/` (event store, rules, MCP tools, server), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-**In v0:** FLOW-1–5, TEAM-1–10, TKT-1–6, HQ-1–9, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–8, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
+**In v0:** FLOW-1–5, TEAM-1–10, TKT-1–6, HQ-1–15, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–8, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
 **Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)).
 

@@ -28,6 +28,10 @@ limits:
 
 allow_push: false     # agents never push unless you set this to true
 
+library:
+  sessions: true      # show your Claude Code conversations in HQ → Library
+  dirs: []            # extra folders to include in the Library, e.g. [research, design]
+
 # model: opus | sonnet | haiku | fable | inherit, or a full ID like claude-sonnet-5.
 # Change it here or in HQ → Team. The lead is your own Claude Code session,
 # so its model is whatever that session runs (/model opus, or claude --model opus).

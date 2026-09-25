@@ -137,6 +137,31 @@ export async function createDemo(dir, { log = console.log } = {}) {
   core.escalate('lead', { question: 'Should unfinished tasks roll over to the next day automatically?', options: ['Yes, roll over', 'No, leave them on their date', 'Ask the user each morning'], recommended: 'Yes, roll over', links: ['FR2'] });
   core.post('lead', { channel: 'general', text: 'Morning: TT-2 (sessions) in progress with @arjun; TT-3 parked until it lands. One question for you in the Inbox.' });
   core.post('qa', { channel: 'ticket:TT-1', text: 'Approved. Error message for taken email matches the contract in docs/design/auth/sessions.md' });
+  core.minutes('lead', {
+    title: 'Planning kickoff with the PM and architect agents',
+    kind: 'planning',
+    attendees: ['you', 'BMad PM agent', 'BMad architect agent', 'lead'],
+    summary: 'Agreed the MVP scope for Tiny Tasks: sign-up, a daily task list and adding tasks. Offline sync and reminders wait until after the MVP.',
+    keyPoints: ['You want to add a task in under 5 seconds', 'Phone first; the web version can come later', 'Keep reminders out of the MVP'],
+    decisions: ['Stack: Expo + Node (Fastify) + Postgres on Azure', 'Email and password sign-up only for now'],
+    actions: [{ what: 'Write the PRD and epics', who: 'BMad PM agent' }, { what: 'Staff the team and plan Epic 1', who: 'lead' }],
+    openQuestions: ['Do unfinished tasks roll over to the next day?'],
+    links: ['[PRD](_bmad-output/planning-artifacts/prd.md)', '[Architecture](_bmad-output/planning-artifacts/architecture.md)'],
+    source: 'Claude Code planning session',
+  });
+  core.minutes('lead', {
+    title: 'UI sprint: sign-up and task list',
+    kind: 'ui-sprint',
+    attendees: ['you', 'maya', 'lena', 'lead'],
+    summary: 'Reviewed design directions A and B in Preview. You picked A (blue) and asked for a bigger New task button. The sign-up screen is signed off.',
+    keyPoints: ['Direction A (blue) chosen', 'New task button must be thumb-reachable'],
+    decisions: ['UI signed off for Story 1.1', 'API contract written to docs/design/auth/sessions.md'],
+    actions: [{ what: 'Wire the sign-up screen to the sessions API', who: 'lena' }],
+    links: ['[Design directions](_bmad-output/planning-artifacts/ux-design-directions.html)', '[Sessions contract](docs/design/auth/sessions.md)'],
+  });
+  core.addLink('you', { title: 'Tiny Tasks: clickable prototype (Claude artifact)', url: 'https://claude.ai/code/artifact/0b7d5c2e-demo-prototype', note: 'The prototype from the ideation session' });
+  core.addLink('maya', { title: 'Tiny Tasks: design system (Figma)', url: 'https://www.figma.com/design/demo/tiny-tasks-design-system' });
+  core.post('maya', { channel: 'general', text: 'Competitor teardown I used for the empty state: https://claude.ai/code/artifact/5f1e9a44-demo-teardown' });
   core.memoryWrite('arjun', 'work', '# arjun: work memory\n\n- Owns docs/design/auth/sessions.md (agreed v1)\n- Sessions: bcrypt + JWT, token in expo-secure-store (DEC-1)\n');
   fs.rmSync(shots, { recursive: true, force: true });
   await c.close();

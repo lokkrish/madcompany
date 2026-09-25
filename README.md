@@ -12,6 +12,7 @@ Compatible with BMad Method v6. Not affiliated with BMad Code, LLC.
 - **You see the app as it's built.** Screens come first, on mock data; screenshots land on every UI ticket.
 - **No walls of text.** Questions reach you as one-line, multiple-choice items with a recommended answer, and your answers are saved so nobody asks twice.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7: click it and HQ opens the exact line.
+- **Everything in one place.** HQ's Library sorts your brief, PRD, UX spec and mockups, architecture, design docs, epics, minutes of meetings, Claude Code planning conversations and links (Claude artifacts first) by stage. Search covers all of it.
 - **Agents have roles, memory and a model you choose.** Each has a domain, a work memory and a comms memory, plus its own git worktree, ports and database. Pick Opus, Sonnet or Haiku per agent from HQ's Team page.
 
 ## How it works
@@ -23,6 +24,8 @@ Compatible with BMad Method v6. Not affiliated with BMad Code, LLC.
 5. **Build:** `/mc-start` makes your Claude Code session the lead. It keeps up to `max_parallel` agents busy, parks blocked work (checkpoint, then resume when unblocked), gets every ticket reviewed by someone other than its author, and merges through a queue that re-runs your checks.
 6. **Workday:** End day makes everyone hand off; Stop now blocks every agent's next action. Tomorrow, `/mc-start` picks up from the handoffs.
 7. **Demo:** you click through the epic, then the epic branch goes to main.
+
+![HQ Library: everything about the project, by stage](docs/images/hq-library.png)
 
 Details: [docs/USAGE.md](docs/USAGE.md). Design and requirements: [docs/SPEC.md](docs/SPEC.md).
 
@@ -53,6 +56,7 @@ Or install it as a BMad module: `npx bmad-method install --custom-source https:/
 | `/mc-plan-epic` | Import BMad stories, anchor IDs, split into tickets |
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract |
 | `/mc-start` | Start the workday; your session becomes the lead |
+| `/mc-minutes` | Minutes of the current conversation (key points, decisions, actions, links) into HQ |
 | `/mc-end-day`, `/mc-stop` | End the day with handoffs, or stop immediately |
 
 | CLI (`npx madcompany …`) | What it does |

@@ -13,20 +13,23 @@ import { createViewWriter } from './views.js';
 import { buildMcpServer } from './mcp.js';
 import { renderCode, renderMarkdown } from './render.js';
 import { setMemberModel, MODEL_CHOICES } from '../setup.js';
+import { createLibrary } from './library.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(here, '..', '..', 'ui');
 const VERSION = JSON.parse(fs.readFileSync(path.join(here, '..', '..', 'package.json'), 'utf8')).version;
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
+const RAW = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.html', '.htm', '.pdf']);
+const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
-const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env']);
+const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink']);
 
 export function createHq({ paths, port = 4317, quiet = false }) {
   const config = loadConfig(paths);
   const store = new Store(paths.events);
   const core = createCore({ store, config, paths });
   const notices = createNotices(core);
+  const library = createLibrary({ paths, config, store });
   let fileRegistry = {};
   const refreshRegistry = () => {
     fileRegistry = buildRegistry(paths.root);
@@ -92,6 +95,12 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       if (p === '/api/state') return json(res, 200, snapshot());
       if (p === '/api/ids') return json(res, 200, registry());
       if (p === '/api/file') return fileView(res, url.searchParams.get('path') ?? '');
+      if (p === '/api/library') return json(res, 200, library.overview());
+      if (p === '/api/search') return json(res, 200, { q: url.searchParams.get('q') ?? '', results: library.search(url.searchParams.get('q')) });
+      if (p.startsWith('/api/session/')) {
+        const sess = library.session(decodeURIComponent(p.slice(13)));
+        return sess ? json(res, 200, sess) : json(res, 404, { error: 'No such conversation' });
+      }
       if (p.startsWith('/api/memory/')) return json(res, 200, core.memoryRead(decodeURIComponent(p.slice(12))));
       if (p === '/api/stream') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
@@ -108,8 +117,11 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       if (p.startsWith('/raw/')) {
         const rel = decodeURIComponent(p.slice(5));
         const abs = safeJoin(paths.root, rel);
-        if (!abs || isHiddenPath(rel) || !MIME[path.extname(abs).toLowerCase()]?.startsWith('image/')) return json(res, 404, { error: 'Not found' });
-        return sendFile(res, abs);
+        const ext = path.extname(abs ?? '').toLowerCase();
+        if (!abs || isHiddenPath(rel) || !RAW.has(ext) || !insideRoot(abs)) return json(res, 404, { error: 'Not found' });
+        // mockups and SVGs run sandboxed: they can't reach HQ's API or your cookies
+        const sandbox = ['.html', '.htm', '.svg'].includes(ext) ? { 'content-security-policy': 'sandbox allow-scripts allow-forms allow-popups' } : {};
+        return sendFile(res, abs, sandbox);
       }
       if (p === '/widget.js') return sendFile(res, path.join(UI_DIR, 'widget.js'), { 'access-control-allow-origin': '*' });
       if (p === '/' || p === '/index.html') return sendFile(res, path.join(UI_DIR, 'index.html'));
@@ -122,6 +134,7 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       if (p === '/api/messages') return ok(res, () => core.post('you', { channel: body.channel, text: body.text }));
       if (p === '/api/answer') return ok(res, () => core.answer('you', body.q, body.answer));
       if (p === '/api/change') return ok(res, () => core.change({ text: body.text }));
+      if (p === '/api/links') return ok(res, () => core.addLink('you', body));
       if (p === '/api/team/model') {
         return ok(res, () => {
           const out = setMemberModel(paths, body.id, body.model);
@@ -159,6 +172,8 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       decisions: s.decisions,
       questions: s.questions,
       facts: s.facts,
+      minutes: s.minutes,
+      links: s.links,
       designs: s.designs,
       epics: s.epics,
       envs: s.envs,
@@ -173,15 +188,26 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     };
   }
 
+  function insideRoot(abs) {
+    try {
+      const real = fs.realpathSync(abs);
+      const base = fs.realpathSync(paths.root);
+      return real === base || real.startsWith(base + path.sep);
+    } catch {
+      return false;
+    }
+  }
+
   function fileView(res, rel) {
     rel = rel.replace(/^\/+/, '');
     const abs = safeJoin(paths.root, rel);
     if (!abs || isHiddenPath(rel)) return json(res, 403, { error: 'Not allowed' });
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return json(res, 404, { error: `No file ${rel}` });
     // a symlink inside the project must not reveal files outside it
-    if (!safeJoin(fs.realpathSync(paths.root), path.relative(fs.realpathSync(paths.root), fs.realpathSync(abs)))) return json(res, 403, { error: 'Not allowed' });
+    if (!insideRoot(abs)) return json(res, 403, { error: 'Not allowed' });
     const size = fs.statSync(abs).size;
     if (MIME[path.extname(abs).toLowerCase()]?.startsWith('image/')) return json(res, 200, { path: rel, kind: 'image', src: `/raw/${encodeURI(rel)}` });
+    if (/\.(html?|pdf)$/i.test(abs)) return json(res, 200, { path: rel, kind: abs.toLowerCase().endsWith('.pdf') ? 'pdf' : 'html', src: `/raw/${encodeURI(rel)}` });
     if (size > 2 * 1024 * 1024) return json(res, 200, { path: rel, kind: 'too-big', size });
     const text = fs.readFileSync(abs, 'utf8');
     if (abs.endsWith('.md')) return json(res, 200, { path: rel, kind: 'markdown', html: renderMarkdown(text, { file: rel, registry: registry() }) });

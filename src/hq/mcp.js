@@ -111,6 +111,30 @@ export function buildMcpServer({ core, notices, registry, version }) {
     ({ as, which, content }) => core.memoryWrite(as, which, content),
   );
   tool('mc_memory_archive', 'Move older detail out of memory into your searchable archive.', { as, text: z.string() }, ({ as, text }) => core.memoryArchive(as, text));
+  tool(
+    'mc_minutes',
+    'Record minutes of a meeting or conversation with the human (planning session, UI sprint, demo, daily wrap-up). Written to .madcompany/meetings/ and shown in HQ.',
+    {
+      as,
+      title: z.string(),
+      kind: z.enum(['planning', 'ui-sprint', 'demo', 'standup', 'review', 'other']),
+      summary: z.string().describe('2-4 sentences'),
+      attendees: list('Who took part, e.g. you, lead, BMad PM agent'),
+      keyPoints: list('What the human said or wanted, one line each'),
+      decisions: list('Decisions made, one line each'),
+      actions: list('Action items: "what (who)"'),
+      openQuestions: list('Still open'),
+      links: list('Links to the files, tickets, artifacts discussed'),
+      source: z.string().optional().describe('e.g. the Claude Code session or the BMad workflow'),
+    },
+    ({ as, ...f }) => core.minutes(as, f),
+  );
+  tool(
+    'mc_link',
+    'Save a link for the team and the human: a Claude artifact, Figma file, doc, video…',
+    { as, url: z.string(), title: z.string(), note: z.string().optional() },
+    ({ as, ...f }) => core.addLink(as, f),
+  );
   tool('mc_env', 'Your own ports and database name, so you never collide with teammates.', { as }, ({ as }) => core.env(as));
 
   // --- lead only ---

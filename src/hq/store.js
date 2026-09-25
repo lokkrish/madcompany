@@ -10,7 +10,9 @@ import { EventEmitter } from 'node:events';
 export function emptyState() {
   return {
     seq: 0,
-    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0 },
+    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0 },
+    minutes: [],
+    links: [],
     workday: { state: 'off', since: null },
     epics: {},
     tickets: {},
@@ -194,6 +196,14 @@ export function applyEvent(s, ev) {
     case 'handoff':
       s.handoffs[ev.by] = { ...d, ts: ev.ts };
       break;
+    case 'minutes.add':
+      s.counters.mom = Math.max(s.counters.mom ?? 0, num(d.id));
+      s.minutes.push({ ...d, by: ev.by, ts: ev.ts });
+      break;
+    case 'link.add':
+      s.counters.link = Math.max(s.counters.link ?? 0, num(d.id));
+      s.links.push({ ...d, by: ev.by, ts: ev.ts });
+      break;
     case 'memory.write':
       s.memoryUpdated[ev.by] = ev.ts;
       break;
@@ -253,6 +263,8 @@ export function describeEvent(ev) {
     case 'workday.end': return 'closed the workday';
     case 'fact.add': return `recorded ${d.id}: ${clip(d.text)}`;
     case 'team.model': return `set ${d.agent}'s model to ${d.model}`;
+    case 'minutes.add': return `wrote minutes ${d.id}: ${d.title}`;
+    case 'link.add': return `saved a link: ${d.title}`;
     default: return null;
   }
 }

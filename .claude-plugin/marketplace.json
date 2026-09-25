@@ -18,6 +18,7 @@
         "./skills/mc-staff",
         "./skills/mc-plan-epic",
         "./skills/mc-ui-sprint",
+        "./skills/mc-minutes",
         "./skills/mc-start",
         "./skills/mc-end-day",
         "./skills/mc-stop"

@@ -6,3 +6,4 @@ madcompany,mc-ui-sprint,UI sprint,UI,"Build clickable screens with the human, si
 madcompany,mc-start,Start the workday,SD,"Become the lead and run the agent team until the day ends.",start,,implementation,mc-plan-epic,mc-end-day,true,,
 madcompany,mc-end-day,End the day,ED,"Agents hand off; logs are committed.",end-day,,implementation,mc-start,,false,,
 madcompany,mc-stop,Stop now,SN,"Block every agent's next action immediately.",stop,,anytime,,,false,,
+madcompany,mc-minutes,Minutes of a conversation,MM,"Record key points, decisions, actions and links of this conversation in HQ.",minutes,,anytime,,,false,,.madcompany/meetings

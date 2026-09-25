@@ -95,13 +95,18 @@ Your Claude Code session becomes the lead:
 | Dashboard | Who's working on what, epic progress, what needs you, what's blocked, latest screenshots, decisions, today's activity |
 | Chat | Channels, DMs and a thread per ticket. Message any agent; `@mention` them |
 | Board | To do → In progress → Blocked → In review → Done; filter by agent or epic |
+| Library | Everything, by planning stage: brief and research, PRD, UX spec and mockups, architecture and design docs, epics, meetings (MoM), your Claude Code conversations, links (Claude artifacts first) and records |
 | Ticket | Checkpoint, screenshots, reviews, commits, and the full activity log |
 | Inbox | Multiple-choice questions for you, a change request form, and your saved answers |
 | Decisions | Everything the team decided without you, and why |
 | Team | Roles, domains, ports and databases, handoffs, and each agent's memory |
 | Preview | Your running app at phone, tablet and desktop widths, plus feedback |
 
-Every ID and file path is a link. Everything is also written as markdown under `.madcompany/log/`, so you can read it without HQ.
+Every ID and file path is a link, and the sidebar search looks through all of it. Everything is also written as markdown under `.madcompany/`, so you can read it without HQ.
+
+**Minutes and links.** After any conversation worth keeping (a BMad planning session, a discussion with the lead), run `/mc-minutes` in Claude Code. It records the key points, decisions, action items, open questions and links as `MOM-n` under Library → Meetings. UI sprints and daily wrap-ups record minutes by themselves. Save a Claude artifact or any other link from Library → Links, or ask the lead to (`mc_link`). Links in your docs and chat are picked up automatically.
+
+**Conversations.** HQ shows your Claude Code sessions for this project (read from `~/.claude/projects/`) under Library → Conversations, including the planning agents. Nothing leaves your machine. Turn it off with `library: { sessions: false }` in `team.yaml`. Add other folders to the Library with `library: { dirs: [research, design] }`.
 
 ## Troubleshooting
 

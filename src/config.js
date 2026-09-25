@@ -15,6 +15,7 @@ const DEFAULTS = {
   ports: { base: 4100 },
   limits: { attempts: 3, memory_chars: 8000 },
   wait_seconds: 240,
+  library: { sessions: true, dirs: [] },
   allow_push: false,
   snapshot: true,
 };
@@ -28,6 +29,7 @@ export function parseTeam(text) {
     preview: { ...DEFAULTS.preview, ...(raw.preview ?? {}) },
     ports: { ...DEFAULTS.ports, ...(raw.ports ?? {}) },
     limits: { ...DEFAULTS.limits, ...(raw.limits ?? {}) },
+    library: { ...DEFAULTS.library, ...(raw.library ?? {}) },
   };
   // YAML turns an empty key (e.g. "checks:" with only comments) into null
   for (const k of Object.keys(DEFAULTS)) if (cfg[k] == null) cfg[k] = DEFAULTS[k];

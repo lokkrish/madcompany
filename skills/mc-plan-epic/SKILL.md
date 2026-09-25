@@ -18,4 +18,6 @@ You act as the madcompany **lead** (`as: "lead"`). HQ must be running (`curl -s 
 4. **Third-party services**: create tickets for mock adapters, and add each real service to `.madcompany/credentials-needed.md`.
 5. **Check with the human only on what's theirs.** If the epic has screens, the next step is `/mc-ui-sprint` with them. Otherwise post a one-line plan in `#general` and start the day with `/mc-start`.
 
+6. **Record it.** If the human took part, run `/mc-minutes` (kind `planning`). Save any Claude artifact, Figma or other link from planning with `mc_link`.
+
 Keep tickets small (under a day for one agent), and write every reference as a link.

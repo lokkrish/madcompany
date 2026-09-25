@@ -91,6 +91,8 @@ export function hqEntries(state) {
   for (const d of state.decisions) reg[normalizeKey(d.id)] = { hq: `#/decisions/${d.id}`, title: `${d.id} ${d.title}` };
   for (const q of Object.values(state.questions)) reg[normalizeKey(q.id)] = { hq: `#/questions/${q.id}`, title: `${q.id} ${q.question}` };
   for (const f of state.facts) reg[normalizeKey(f.id)] = { hq: `#/facts/${f.id}`, title: `${f.id} ${f.text}` };
+  for (const m of state.minutes ?? []) reg[normalizeKey(m.id)] = { hq: `#/file/${m.file}?a=${m.id.toLowerCase()}`, title: `${m.id} ${m.title} (${m.date})` };
+  for (const l of state.links ?? []) reg[normalizeKey(l.id)] = { hq: l.url, title: `${l.id} ${l.title}`, external: true };
   return reg;
 }
 

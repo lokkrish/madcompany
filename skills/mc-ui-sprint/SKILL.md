@@ -15,6 +15,7 @@ This is the part of the process where the human is present. Keep every message s
 3. **Show it.** Tell the human to open HQ → Preview (or the app URL, or Expo Go on their phone). They click **Comment** on any element; each comment becomes a feedback ticket. Fix them in rounds and take screenshots after each round (`mc_attach` to the feedback tickets).
 4. **Sign-off.** When the human approves:
    - log it: `mc_decide` titled `UI signed off: <epic>`, with links to the screenshots
+   - record the session: run `/mc-minutes` (kind `ui-sprint`), so what the human asked for is in HQ → Library → Meetings
    - write the API contract the screens need to `docs/design/<area>/api.md` (OpenAPI, or a table of endpoints with request and response shapes) with `mc_design_write`, listing the backend and frontend agents as consumers
    - update the epic's tickets: UI tickets now wire the real contract; backend tickets implement it
 5. Hand over to the team with `/mc-start`. From here the human is only asked about decisions that are theirs.
