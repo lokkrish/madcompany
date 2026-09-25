@@ -43,6 +43,15 @@ limits:
 allow_push: false     # agents never push unless you set this to true
 env_files: [.env, .env.local]   # where HQ checks that keys from Human help were added (never reads values)
 
+# MCP servers and plugins you've added to Claude Code are the team's too (HQ → Tools).
+# Read-only MCP tools run without a prompt; tools that push, deploy, pay, delete or
+# send, and writes to GitHub, Linear, Stripe, clouds…, go to you as Human help.
+tools:
+  auto_allow: true    # false: every MCP tool follows your Claude Code permissions
+  allow: []           # e.g. [mcp__github__create_pull_request] or a whole server: [mcp__linear]
+  human: []           # always yours, e.g. [mcp__supabase__execute_sql]
+  assign: {}          # who uses which server, beyond the defaults by role, e.g. { qa: [playwright] }
+
 library:
   sessions: true      # show your Claude Code conversations in HQ → Library
   dirs: []            # extra folders to include in the Library, e.g. [research, design]

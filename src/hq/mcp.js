@@ -137,6 +137,12 @@ export function buildMcpServer({ core, notices, registry, version }) {
   );
   tool('mc_env', 'Your own ports and database name, so you never collide with teammates.', { as }, ({ as }) => core.env(as));
   tool(
+    'mc_tools',
+    'The MCP servers, plugins and skills this project has: which servers are yours, what each is for, and what you may do with them without the human.',
+    { as },
+    ({ as }) => core.toolsFor(as),
+  );
+  tool(
     'mc_human_help',
     'Ask the human to do something only a person can do: create an account, get an API key or secret, set up a service (OAuth app, webhook, DNS, email domain), pay for something, push/deploy/publish, grant access or provide real data. It shows in HQ → Human help with your steps. Keep working on mocks; park your ticket on the HELP ID only if you truly cannot continue.',
     {

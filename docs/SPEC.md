@@ -1,6 +1,6 @@
 # madcompany: Spec
 
-**Status:** v0.5, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
+**Status:** v0.6, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
 **Name:** madcompany (earlier: "BMAD Company", then "Storyfront"; see [OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
@@ -9,6 +9,7 @@
 - Keep BMAD for planning. Replace its story-by-story build loop with a team of AI agents working in parallel.
 - Five ways to build ([§20](#20-development-modes-and-releases)): UI-driven, MVP-driven, UI-MVP and brownfield deliver **release by release**; spec-driven delivers epic by epic.
 - Everything only a person can do (accounts, keys, payments, pushes, deploys) is listed in **Human help** with exact steps ([§21](#21-human-help)).
+- The MCP servers and plugins you've added to Claude Code are the team's tools too, used by the right roles and kept safe by the same hook ([§22](#22-mcp-servers-and-plugins)).
 - You're involved in three places: UI/UX sessions, escalations the team can't resolve, and the end-of-epic demo.
 - Everything the team does is visible in **HQ**, a local app combining Teams-style chat, a Jira-style board, a decisions log and a dashboard.
 - Every reference (requirement, ticket, decision, file) is a clickable link.
@@ -351,7 +352,7 @@ docs/design/<area>/         # design packs                  TEAM-7
 
 In this repo: `src/hq/` (event store, rules, MCP tools, server), `src/roles.js` (role catalogue and templates), `src/auth.js` (sign-in links), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-**In v0:** FLOW-1–5, FLOW-8 (as `/mc-scan`), MODE-1–4, SHIP-1–6, HUM-1–6, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
+**In v0:** FLOW-1–5, FLOW-8 (as `/mc-scan`), MODE-1–4, SHIP-1–6, HUM-1–6, TOOL-1–7, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
 **Not yet:** a deploy command ([FLOW-6](#flow-6), [INT-3](#int-3); today `ship` hands you a deploy checklist in Human help), importing in-progress BMad sprints ([FLOW-7](#flow-7)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)), and the roadmap in [§19](#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
@@ -420,3 +421,18 @@ Each project has a mode (`mode:` in `team.yaml`; `npx madcompany init --mode`, `
 | <a id="hum-4"></a>HUM-4 | HQ checks whether each listed key has a value in your env files (`env_files:`, default `.env` and `.env.local`). It never reads out, shows or sends a value. Marking an item done with a key still missing asks first. |
 | <a id="hum-5"></a>HUM-5 | Anyone who can chat can mark an item done with a note; owners can mark it not needed; you can add your own. The dashboard counts open items and how many are blocking work. |
 | <a id="hum-6"></a>HUM-6 | Items are also written to `.madcompany/human-help.md`, `HELP-n` is a clickable reference everywhere, and `npx madcompany status` lists what's open. |
+
+## 22. MCP servers and plugins
+
+Agents are Claude Code subagents, so they inherit the session's MCP servers (project `.mcp.json`, the user's own, and those from enabled plugins) and its plugin skills, agents and hooks. madcompany makes that deliberate and safe.
+
+| ID | Requirement |
+|---|---|
+| <a id="tool-1"></a>TOOL-1 | HQ finds the project's MCP servers, the user's own servers, enabled plugins (with their skills, agents, MCP servers and hooks) and skills, from the files Claude Code reads. Only names, types and hosts are read out: never env values, headers, command arguments or URL queries. The user's personal servers are shown only to owners. |
+| <a id="tool-2"></a>TOOL-2 | Each agent's file lists its own servers, chosen by role and domain from a catalogue of well-known servers, or assigned in `team.yaml` (`tools.assign`), with what each is for and what it may do. `mc_tools` shows everything; the lead's briefing lists servers, who uses them, plugin skills and plugin agents. |
+| <a id="tool-3"></a>TOOL-3 | The safety hook decides MCP tool calls ([SEC-6](#sec-6)): read-only tools and every tool of servers that only work on this machine run without a permission prompt, since background agents can't answer one. Tools that push, merge, deploy, publish, pay, delete or send, and writes to systems other people see (source hosting, trackers, chat, payments, databases, clouds), are blocked and go to Human help ([HUM-2](#hum-2)). Anything else follows Claude Code's own permissions. |
+| <a id="tool-4"></a>TOOL-4 | `team.yaml` can allow tools (`tools.allow`), always send them to the human (`tools.human`), or turn automatic allowing off (`tools.auto_allow: false`). The user's own Claude Code deny rules always win. |
+| <a id="tool-5"></a>TOOL-5 | Connecting or logging in to a server is the human's: HQ suggests servers for the project's stack, mode and Library, and turns a suggestion into a Human help item with the exact command. |
+| <a id="tool-6"></a>TOOL-6 | Every MCP and skill call is logged with its time, agent and the policy's decision, never its inputs. HQ → Tools shows usage and blocked calls per server. |
+| <a id="tool-7"></a>TOOL-7 | Checked with a real headless Claude Code run: a read-only MCP tool ran, a delete tool was blocked with the Human help message, and without the hook the read-only tool was denied. |
+

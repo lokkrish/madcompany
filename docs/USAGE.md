@@ -152,6 +152,7 @@ Then the lead plans the next release with you (`/mc-plan-release`). Spec-driven 
 | Ticket | Checkpoint, screenshots, reviews, commits, and the full activity log |
 | Inbox | Multiple-choice questions for you, a change request form, and your saved answers |
 | Human help | Everything only you can do, with steps, which keys are still missing, and what's waiting on it |
+| Tools | MCP servers, plugins and skills: who uses what, what agents may do, suggestions, and recent calls |
 | Decisions | Everything the team decided without you, and why |
 | Team | Agents by department with roles, domains, models, ports and databases, handoffs and memory. Hire and remove; invite people |
 | Preview | Your running app at phone, tablet and desktop widths, plus feedback |
@@ -172,7 +173,21 @@ Anything only a person can do goes to HQ → **Human help**, never into chat: ac
 - Owners can mark an item **Not needed**. You can add your own items on the page.
 - Everything is also in `.madcompany/human-help.md`, and `npx madcompany status` lists what's open.
 
-## 10. Share HQ with your team
+## 10. MCP servers and plugins
+
+Agents are Claude Code subagents, so they have every MCP server and plugin your Claude Code session has: servers in the project's `.mcp.json`, your own servers (`claude mcp add`), and whatever enabled plugins bring (skills, agents, MCP servers, hooks). HQ → **Tools** shows all of it.
+
+- **Who uses what.** Each agent's file gets a "Your tools" section: the known servers that fit its role (QA and web developers: Playwright and Chrome DevTools; designers: Figma; backend and database: Supabase or your database; DevOps: Vercel and clouds; the lead: GitHub, Linear; everyone: Context7). Assign others in `team.yaml`, e.g. `tools: { assign: { qa: [my-server] } }`, then press **Update agents** in HQ → Tools (or `npx madcompany staff`) and restart Claude Code. Agents call `mc_tools` for the full list, including plugin skills.
+- **What runs without asking.** Background agents can't answer permission prompts, so the safety hook answers for MCP tools:
+  - read-only tools (`get_`, `list_`, `search_`, `read_`…) and every tool of servers that only work on your machine (Playwright, Chrome DevTools, Context7) are allowed
+  - tools that push, merge, deploy, publish, pay, refund, delete or send, and anything else that writes to GitHub, GitLab, Linear, Jira, Notion, Slack, Stripe, Supabase, Vercel, a database or a cloud, are blocked; the agent files it in Human help
+  - other tools follow your Claude Code permissions as usual
+- **Change it** in `team.yaml`: `tools.allow` (e.g. `[mcp__github__create_pull_request]`, or `[mcp__linear]` for a whole server), `tools.human` (always yours), `tools.auto_allow: false` (no automatic allows at all). Your own `permissions.deny` rules in Claude Code settings always win.
+- **Logins.** A server that needs you to log in (Figma, GitHub, Linear…) is connected once by you: `/mcp` in Claude Code. Agents can't.
+- **Suggestions.** HQ → Tools lists servers worth adding for your stack, with the `claude mcp add` command. **Add to Human help** turns one into an item for you: adding a server runs someone else's code with your accounts, so it's your call.
+- **Log.** Each MCP and skill call is recorded in `.madcompany/run/tool-calls.jsonl`: time, agent, tool and what the policy did. Never the inputs.
+
+## 11. Share HQ with your team
 
 HQ is yours alone by default. To let teammates or a client in:
 

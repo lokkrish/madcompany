@@ -142,7 +142,7 @@ function render() {
   const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name === 'epics' ? 'releases' : r.name;
   const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : viewName; // sidebar highlight
   document.querySelectorAll('.side a').forEach((a) => a.classList.toggle('on', a.dataset.nav === name));
-  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage };
+  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage, tools: toolsPage };
   const view = views[viewName] ?? dashboard;
   const key = location.hash;
   const keepScroll = key === lastView;
@@ -540,6 +540,58 @@ function releasesPage(r) {
   return `<div class="top"><div class="grow"><h1>${unitWord(true)}</h1><div class="sub">${esc(m.title)}: ${esc(S.config.modes[m.name].for)}</div></div></div>
   <div class="card"><h3>How ${unitWord(true).toLowerCase()} work here</h3><div class="sub">${esc(m.guidance)}</div>${ladder}<div class="sub" style="margin-top:8px">Switch with <code>npx madcompany mode &lt;${Object.keys(S.config.modes).join('|')}&gt;</code>.</div></div>
   <div class="stack" style="margin-top:14px">${[...units].reverse().map(card).join('') || `<div class="card"><p class="empty">No ${unitWord(true).toLowerCase()} yet. In Claude Code, run <code>${byRelease() ? '/mc-plan-release' : '/mc-plan-epic'}</code>.</p></div>`}</div>`;
+}
+
+// ---------- Tools: MCP servers, plugins and skills ----------
+const SCOPE = { project: 'Project (.mcp.json)', user: 'Yours (all projects)', local: 'Yours (this project)', plugin: 'From a plugin' };
+function toolsPage() {
+  api('/api/tools')
+    .then((t) => {
+      const serverRow = (s) => `<div class="card stack" id="x-${esc(s.name)}">
+          <div class="row" style="flex-wrap:wrap"><b>${esc(s.name)}</b>${s.known ? `<span class="tag">${esc(s.known.title)}</span>` : ''}<span class="sub">${esc(SCOPE[s.scope] ?? s.scope)}${s.plugin ? ` · ${esc(s.plugin)}` : ''} · ${esc(s.type)} · <span class="mono">${esc(s.target)}</span></span><span class="grow"></span>${s.approved === null ? pill('draft', 'waiting for your OK in Claude Code') : s.approved === false ? pill('stopped', 'turned off') : ''}</div>
+          ${s.known ? `<div>${esc(s.known.for)}</div>` : ''}
+          <div class="sub">${esc(s.policy)}</div>
+          <div class="sub">Used by: ${s.users.length ? s.users.map((u) => `<a href="#/team/${esc(u)}">${esc(u)}</a>`).join(', ') : 'nobody yet (assign it under tools.assign in team.yaml)'}${s.calls ? ` · ${s.calls} call${s.calls > 1 ? 's' : ''}` : ''}${s.blocked ? ` · <a href="#/help">${s.blocked} blocked</a>` : ''}</div>
+          ${s.type !== 'stdio' ? '<div class="sub">If it needs a login, run <code>/mcp</code> in Claude Code once; agents can’t log in for you.</div>' : ''}
+        </div>`;
+      const plugin = (p) => `<div class="card stack"><div class="row"><b>${esc(p.name)}</b><span class="sub">${esc(p.marketplace)} · enabled for ${esc(p.scope === 'user' ? 'you' : p.scope)}</span></div>
+          ${p.description ? `<div class="sub">${esc(p.description)}</div>` : ''}
+          ${p.found ? `<div class="sub">${[p.skills.length && `Skills: ${p.skills.map((x) => `<code>/${esc(x)}</code>`).join(' ')}`, p.agents.length && `Agents: ${p.agents.map((a) => esc(a.name)).join(', ')}`, p.servers.length && `MCP servers: ${p.servers.map(esc).join(', ')}`, p.hooks && 'Hooks'].filter(Boolean).join(' · ') || 'Nothing the team uses directly.'}</div>` : '<div class="sub">Installed files not found; Claude Code still loads it.</div>'}</div>`;
+      const sugg = (x) => `<div class="card stack"><div class="row"><b>${esc(x.title)}</b><span class="grow"></span>${can('member') ? `<button data-suggest="${esc(x.key)}">Add to Human help</button>` : ''}</div><div>${esc(x.for)}</div><div class="sub">${esc(x.why)}</div><div class="mono sub">${esc(x.add)}</div></div>`;
+      const recent = t.usage.recent.length
+        ? t.usage.recent.map((c) => `<div class="item"><span class="time" style="width:110px;flex:none">${clock(c.ts)}</span><span>${c.agent ? `<b>${esc(c.agent)}</b> ` : ''}<span class="mono">${esc(c.tool)}</span> ${c.decision === 'human' ? pill('stopped', 'blocked → Human help') : c.decision === 'allow' ? pill('agreed', 'allowed') : ''}</span></div>`).join('')
+        : '<p class="empty">No MCP or skill calls yet.</p>';
+      const pol = t.policy;
+      $main.innerHTML = `<div class="top"><div class="grow"><h1>Tools</h1><div class="sub">MCP servers, plugins and skills your Claude Code sessions have, so the whole team has them too. Found from <code>.mcp.json</code>, your Claude Code settings and enabled plugins.</div></div>${can('owner') ? '<button data-act="restaff" title="Rewrite each agent’s Your tools section">Update agents</button>' : ''}</div>
+        <div class="card"><h3>What agents may do</h3><ul class="policy">
+          <li>${pol.auto_allow ? 'Read-only tools, and every tool of servers that only work on this machine (Playwright, Chrome DevTools, Context7), run without a permission prompt.' : 'Every MCP tool follows your Claude Code permissions (tools.auto_allow is off).'}</li>
+          <li>Tools that push, merge, deploy, publish, pay, refund, delete or send, and anything that writes to GitHub, Linear, Notion, Slack, Stripe, Supabase, Vercel or a cloud, are blocked. The agent files it in <a href="#/help">Human help</a>.</li>
+          <li>Change it in <code>.madcompany/team.yaml</code>: <code>tools.allow</code> ${pol.allow.length ? `(now: ${pol.allow.map((x) => `<code>${esc(x)}</code>`).join(', ')})` : ''}, <code>tools.human</code> ${pol.human.length ? `(now: ${pol.human.map((x) => `<code>${esc(x)}</code>`).join(', ')})` : ''}, and who gets which server with <code>tools.assign</code>.</li>
+        </ul></div>
+        <h2 style="margin-top:18px">MCP servers <span class="count">${t.servers.length}</span></h2>
+        <div class="stack">${t.servers.map(serverRow).join('') || '<div class="card"><p class="empty">No MCP servers yet. Suggestions below.</p></div>'}</div>
+        ${t.suggestions.length ? `<h2 style="margin-top:18px">Worth adding <span class="count">${t.suggestions.length}</span></h2><p class="sub">Adding a server is yours to do: it runs someone else's code with your accounts. Each one becomes a Human help item with the command.</p><div class="grid g2">${t.suggestions.map(sugg).join('')}</div>` : ''}
+        <h2 style="margin-top:18px">Plugins <span class="count">${t.plugins.length}</span></h2>
+        <div class="grid g2">${t.plugins.map(plugin).join('') || '<div class="card"><p class="empty">No plugins enabled. Add them with <code>/plugin</code> in Claude Code; the team gets their skills, agents and MCP servers.</p></div>'}</div>
+        <div class="grid g2" style="margin-top:14px">
+          <div class="card feed"><h3>Skills <span class="count">${t.skills.length}</span></h3>${t.skills.map((x) => `<div class="item"><code>/${esc(x.name)}</code><span class="sub">${esc(x.description)} · ${esc(x.source)}</span></div>`).join('') || '<p class="empty">Only madcompany’s own.</p>'}</div>
+          <div class="card feed"><h3>Recent calls</h3>${recent}</div>
+        </div>`;
+      $main.querySelector('[data-act="restaff"]')?.addEventListener('click', () => act(() => api('/api/tools/restaff', {})).then(() => alert('Agents updated. Restart Claude Code so they reload.')));
+      $main.querySelectorAll('[data-suggest]').forEach((b) =>
+        b.addEventListener('click', async () => {
+          const x = t.suggestions.find((y) => y.key === b.dataset.suggest);
+          try {
+            const out = await api('/api/help', { title: `Connect the ${x.title} MCP server`, kind: 'setup', service: x.title, why: `${x.why} ${x.for}`, steps: [`In the project folder, run: ${x.add}`, 'Restart Claude Code and run /mcp to check it shows as connected. Log in there if it asks.', 'In HQ → Tools, press Update agents so the right people know about it.'] });
+            location.hash = `#/help/${out.id}`;
+          } catch (err) {
+            alert(err.message);
+          }
+        }),
+      );
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
 }
 
 function preview() {

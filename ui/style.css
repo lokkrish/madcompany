@@ -260,3 +260,4 @@ mark { background: var(--amber-soft); color: inherit; border-radius: 3px; paddin
 .ladder { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 .ladder > div { flex: 1 1 200px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; }
 .review-box textarea { width: 100%; }
+.feed .item code { white-space: nowrap; }

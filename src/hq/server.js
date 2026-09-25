@@ -12,12 +12,14 @@ import { createNotices } from './notices.js';
 import { createViewWriter } from './views.js';
 import { buildMcpServer } from './mcp.js';
 import { renderCode, renderMarkdown } from './render.js';
-import { setMemberModel, MODEL_CHOICES, hireMember, removeMember, addPerson, removePerson } from '../setup.js';
+import { setMemberModel, MODEL_CHOICES, hireMember, removeMember, addPerson, removePerson, staff } from '../setup.js';
 import { ROLES, TEMPLATES, DEPARTMENTS } from '../roles.js';
 import { createAccess, readCookie } from '../auth.js';
 import { createLibrary } from './library.js';
 import { MODES } from '../modes.js';
 import { HELP_KINDS } from './core.js';
+import { discoverTools, serversFor, policyLine, suggestions, toolUsage, writePolicy } from '../tools.js';
+import { scanProject } from '../scan.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(here, '..', '..', 'ui');
@@ -55,6 +57,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
   const views = createViewWriter(core, { onWritten: refreshRegistry });
   views.flush();
   writePolicy(paths, config);
+  refreshHook(paths);
 
   const sse = new Set();
   let sseTimer = null;
@@ -122,6 +125,37 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
     config.people.splice(0, config.people.length, ...fresh.people);
     config.leadId = fresh.leadId;
     config.max_parallel = fresh.max_parallel;
+    config.tools = fresh.tools;
+    writePolicy(paths, config);
+  }
+
+  /** MCP servers, plugins and skills, who uses them, and what the hook has seen. */
+  function toolsView(level) {
+    const found = discoverTools(paths.root);
+    // your personal (user/local) servers are only shown to owners
+    const servers = found.servers.filter((s) => level >= 3 || ['project', 'plugin'].includes(s.scope));
+    const usage = toolUsage(paths);
+    const members = config.team.map((m) => ({ id: m.id, servers: serversFor(m, servers, config).map((s) => s.name) }));
+    let scan = null;
+    try {
+      scan = scanProject(paths.root);
+    } catch {
+      // not a project we can scan
+    }
+    return {
+      servers: servers.map((s) => ({
+        ...s,
+        policy: policyLine(s, config),
+        users: members.filter((m) => m.servers.includes(s.name)).map((m) => m.id),
+        calls: Object.entries(usage.byTool).filter(([t]) => t.startsWith(s.prefix)).reduce((n, [, u]) => n + u.calls, 0),
+        blocked: Object.entries(usage.byTool).filter(([t]) => t.startsWith(s.prefix)).reduce((n, [, u]) => n + u.blocked, 0),
+      })),
+      plugins: found.plugins,
+      skills: found.skills,
+      suggestions: suggestions({ servers: found.servers, scan, mode: config.mode, links: store.state.links }),
+      usage,
+      policy: config.tools,
+    };
   }
   const busyAgents = () => [...new Set(Object.values(store.state.tickets).filter((t) => ['in_progress', 'blocked', 'in_review'].includes(t.status)).map((t) => t.assignee))];
 
@@ -176,6 +210,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/health') return json(res, 200, { ok: true, version: VERSION, project: config.project, ...(share ? { share: true } : { root: paths.root }) });
       if (p === '/api/me') return json(res, 200, { ...who, share });
       if (p === '/api/roles') return json(res, 200, { roles: ROLES, templates: TEMPLATES, departments: DEPARTMENTS });
+      if (p === '/api/tools') return json(res, 200, toolsView(LEVEL[who.role] ?? 0));
       if (p === '/api/people') return json(res, 200, { people: [{ ...OWNER(), hasLink: access.hasLink('you') }, ...config.people.map((x) => ({ ...x, hasLink: access.hasLink(x.id) }))] });
       if (p === '/api/state') return json(res, 200, snapshot());
       if (p === '/api/ids') return json(res, 200, registry());
@@ -221,6 +256,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text }, who.id));
       if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
       if (p === '/api/help') return need(2) && ok(res, () => core.requestHelp(who.id, body));
+      if (p === '/api/tools/restaff') return need(3) && ok(res, () => (staff(paths, { log: () => {} }), { ok: true }));
       if (p === '/api/help/done') return need(2) && ok(res, () => core.helpDone(who.id, body.id, { note: body.note, force: body.force }));
       if (p === '/api/help/cancel') return need(3) && ok(res, () => core.helpCancel(who.id, body.id, body.reason));
       // approving a release is the owner's call; anyone who can chat can ask for changes
@@ -386,10 +422,15 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
   };
 }
 
-/** Policy the pre-tool hook reads (it runs without loading any dependencies). */
-export function writePolicy(paths, config) {
-  ensureDir(paths.run);
-  fs.writeFileSync(paths.policy, JSON.stringify({ allowPush: Boolean(config.allow_push), root: paths.root }));
+/** Projects keep a copy of the hook (it can't import anything); update it when madcompany is updated. */
+function refreshHook(paths) {
+  const src = path.join(here, '..', 'hook.js');
+  const dest = path.join(paths.bin, 'hook.mjs');
+  try {
+    if (fs.existsSync(dest) && fs.readFileSync(dest, 'utf8') !== fs.readFileSync(src, 'utf8')) fs.copyFileSync(src, dest);
+  } catch {
+    // leave the old hook in place
+  }
 }
 
 function deny(res, code, msg) {

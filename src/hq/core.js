@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { McError, member } from '../config.js';
 import { ensureDir, safeJoin } from '../paths.js';
 import { modeInfo } from '../modes.js';
+import { discoverTools, serversFor, policyLine } from '../tools.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'in_review', 'done'];
 const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
@@ -249,6 +250,7 @@ export function createCore({ store, config, paths }) {
       // the humans in HQ besides "you"; agents can @mention them
       people: config.people,
       mode_guidance: mode().guidance,
+      tools: toolsSummary(),
       human_messages: s().messages.filter((m) => isHuman(m.by)).slice(-5),
       answered_for_you: Object.values(s().questions).filter((q) => q.status === 'answered' && isHuman(q.answeredBy)).slice(-5),
     };
@@ -978,6 +980,39 @@ export function createCore({ store, config, paths }) {
     return { ok: true };
   }
 
+  // ---------- MCP servers, plugins and skills ----------
+  function found() {
+    try {
+      return discoverTools(paths.root);
+    } catch {
+      return { servers: [], plugins: [], skills: [] };
+    }
+  }
+  /** For the lead's briefing: who uses which server, and what plugins bring. */
+  function toolsSummary() {
+    const f = found();
+    return {
+      servers: f.servers.filter((x) => ['project', 'plugin', 'local'].includes(x.scope) || x.known).map((x) => ({ name: x.name, for: x.known?.for ?? null, users: config.team.filter((m) => serversFor(m, [x], config).length).map((m) => m.id) })),
+      plugin_skills: f.skills.filter((x) => x.source.startsWith('plugin')).map((x) => `${x.name}: ${x.description}`).slice(0, 20),
+      plugin_agents: f.plugins.flatMap((p) => p.agents.map((a) => `${a.name} (${p.name}): ${a.description}`)).slice(0, 10),
+      note: 'Read-only MCP tools need no permission. Tools that push, deploy, pay, delete or send are blocked; agents file them as Human help.',
+    };
+  }
+  /** mc_tools: everything available, and which of it is yours. */
+  function toolsFor(as) {
+    const m = member(config, actor(as, { allowCli: true })) ?? null;
+    const f = found();
+    const mine = m ? serversFor(m, f.servers, config) : [];
+    const view = (x) => ({ name: x.name, prefix: x.prefix, what: x.known?.for ?? null, policy: policyLine(x, config) });
+    return {
+      yours: mine.map(view),
+      others: f.servers.filter((x) => !mine.includes(x)).map(view),
+      plugins: f.plugins.map((p) => ({ id: p.id, skills: p.skills, agents: p.agents.map((a) => a.name), servers: p.servers })),
+      skills: f.skills.map((x) => ({ name: x.name, what: x.description, from: x.source })),
+      rules: 'Use your servers freely for reading. Anything that pushes, deploys, pays, deletes or sends is the human\'s: if the hook blocks a tool, file mc_human_help with what to run and why, and keep going on a mock.',
+    };
+  }
+
   // ---------- feedback & change requests ----------
   function feedback(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty comment.');
@@ -1059,6 +1094,8 @@ export function createCore({ store, config, paths }) {
     helpCancel,
     envStatus,
     mode,
+    toolsFor,
+    toolsSummary,
     ticket,
     feedback,
     change,

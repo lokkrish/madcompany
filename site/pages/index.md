@@ -63,7 +63,7 @@ Pick one per project. Four of them deliver **release by release**: something you
 
 ## HQ
 
-One local app for everything: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Preview**, plus search.
+One local app for everything: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Tools, Preview**, plus search.
 
 <div class="gallery">
 <figure><a href="img/hq-releases.png"><img src="img/hq-releases.png" alt="HQ Releases: R2 building, R1 waiting for your review with Approve and Request changes"></a><figcaption><b>Releases.</b> Each release's goal and progress; approve it or ask for changes.</figcaption></figure>
@@ -93,7 +93,8 @@ Or install it as a BMad module: `npx bmad-method install --custom-source https:/
 - The team runs **inside your own Claude Code session**, on its login. madcompany never touches your credentials.
 - You choose each agent's model (Opus, Sonnet, Haiku…). `max_parallel` caps how many work at once, because they share your plan's usage limits. On most plans 3 to 6 at a time is realistic.
 - A workday you start and end: **End day** makes everyone hand off; **Stop now** halts every agent at its next action. Tomorrow, `/mc-start` picks up from the handoffs.
-- A safety hook blocks pushes, deploys, cloud changes, publishing, global installs and `.env` secrets. Those come to you in [Human help](human-help.html).
+- A safety hook blocks pushes, deploys, cloud changes, publishing, global installs and `.env` secrets, through the shell or an MCP server. Those come to you in [Human help](human-help.html).
+- The [MCP servers and plugins](mcp-and-plugins.html) you've added to Claude Code are the team's tools too, each role with its own.
 
 ## Honest limits
 

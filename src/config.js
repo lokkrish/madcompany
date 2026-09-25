@@ -18,6 +18,8 @@ const DEFAULTS = {
   env_files: ['.env', '.env.local'],
   // your deploy steps; after "madcompany ship" they become a Human help item
   deploy: [],
+  // MCP servers and plugins: what agents may use without asking (see src/hook.js classifyMcp)
+  tools: { auto_allow: true, allow: [], human: [], assign: {} },
   max_parallel: 3,
   checks: [],
   preview: { url: null },
@@ -39,12 +41,20 @@ export function parseTeam(text) {
     ports: { ...DEFAULTS.ports, ...(raw.ports ?? {}) },
     limits: { ...DEFAULTS.limits, ...(raw.limits ?? {}) },
     library: { ...DEFAULTS.library, ...(raw.library ?? {}) },
+    tools: { ...DEFAULTS.tools, ...(raw.tools ?? {}) },
   };
   // YAML turns an empty key (e.g. "checks:" with only comments) into null
   for (const k of Object.keys(DEFAULTS)) if (cfg[k] == null) cfg[k] = DEFAULTS[k];
   cfg.checks = toList(cfg.checks);
   cfg.env_files = toList(cfg.env_files);
   cfg.deploy = toList(cfg.deploy);
+  cfg.tools = {
+    auto_allow: cfg.tools.auto_allow !== false,
+    allow: toList(cfg.tools.allow),
+    human: toList(cfg.tools.human),
+    assign: Object.fromEntries(Object.entries(cfg.tools.assign ?? {}).map(([k, v]) => [k, toList(v)])),
+  };
+  for (const r of [...cfg.tools.allow, ...cfg.tools.human]) if (!/^mcp__[\w.*-]+/.test(r)) throw new McError(`tools.allow and tools.human take MCP tool names like mcp__github__create_pull_request or mcp__linear, got "${r}"`);
   if (!MODES[cfg.mode]) throw new McError(`mode must be one of ${Object.keys(MODES).join(', ')}, got "${cfg.mode}"`);
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(cfg.project.key)) {
     throw new McError(`project.key must be 2-10 capital letters or digits, got "${cfg.project.key}"`);

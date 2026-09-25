@@ -18,6 +18,7 @@ BMad plans well, but its build phase goes one story at a time (create story → 
 - **Everything only you can do is in one list:** [Human help](#human-help). Accounts, API keys, payments, pushes and deploys, each with exact steps.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7, HELP-3, R2: click it and HQ opens the exact line.
 - **Staffed like a company.** 14 roles in 7 departments, templates for 5, 10 or 20 people, a model per agent, and teammates or clients can sign in to HQ.
+- **Uses your MCP servers and plugins.** Whatever you've added to Claude Code (Playwright, Figma, GitHub, Supabase, plugin skills…) the team uses too, each role with its own tools, and anything that would push, deploy or pay goes to you.
 
 ## Five ways to build
 
@@ -136,6 +137,18 @@ Some things only a person can do: sign up for a service, create an API key, pay,
 
 ![HQ Human help](docs/images/hq-human-help.png)
 
+## MCP servers and plugins
+
+The agents are Claude Code subagents, so the MCP servers and plugins you've added to Claude Code are theirs too. madcompany makes that safe and deliberate:
+
+- **Aware.** HQ → Tools lists every server (from `.mcp.json`, your Claude Code settings and enabled plugins), plugin skills and plugin agents. Each agent's file says which servers are its own (QA gets Playwright, designers get Figma, the lead gets GitHub…); `mc_tools` shows the rest, and the lead gets them in its morning briefing.
+- **Works unattended.** Background agents can't answer permission prompts, so the safety hook lets read-only MCP tools run without one (checked with a real Claude Code run: without it, even a read-only tool is denied).
+- **Safe.** Tools that push, merge, deploy, publish, pay, delete or send, and writes to GitHub, Linear, Stripe, Supabase, clouds and the like, are blocked and filed as Human help. Allow or block specific tools in `team.yaml` (`tools.allow`, `tools.human`); your own Claude Code deny rules always win.
+- **Suggested.** HQ suggests servers for your stack (Context7 for any project, Playwright for web apps, Sentry or Stripe if the code uses them). Adding one is yours to do, so each becomes a Human help item with the command.
+- **Logged.** Every MCP and skill call is recorded with who made it and what the policy did, never its inputs.
+
+![HQ Tools](docs/images/hq-tools.png)
+
 ## What you get
 
 | In Claude Code | What it does |
@@ -163,27 +176,27 @@ Some things only a person can do: sign up for a service, create an API key, pay,
 | `refs check` / `refs fix` | Find or fix bare references like "FR12" that should be links |
 | `status`, `env <agent>`, `snapshot` | Summary, per-agent ports and database, commit HQ's logs |
 
-HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Preview**, plus search. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
+HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Tools, Preview**, plus search. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
 
 ## Safety
 
 Agents work unattended, so the rules are enforced in code, not just in prompts:
 
-- A **pre-tool hook** blocks pushing, force-pushing, deploys, cloud changes, publishing, global installs, piping downloads into a shell, deleting outside the project, and reading or writing `.env` secrets. Those go to you in Human help.
+- A **pre-tool hook** blocks pushing, force-pushing, deploys, cloud changes, publishing, global installs, piping downloads into a shell, deleting outside the project, and reading or writing `.env` secrets, whether through the shell or an MCP server. Those go to you in Human help.
 - **HQ** listens on 127.0.0.1 only and rejects cross-origin and foreign-host requests. With `hq --share`, everyone signs in with a personal link (stored hashed, revocable), and agents and the CLI still only talk to HQ from your machine.
 - **Agents** never see your Claude credentials: they run inside your own Claude Code session on its login.
 - **No third-party skill marketplace.** Third-party services run on mocks until you add real keys yourself.
 
 ## Status
 
-v0. Covered by 54 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
+v0. Covered by 59 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
 
 | Run | What happened | Time | Usage |
 |---|---|---|---|
 | Plain ticket | dev built it → QA reviewed and ran the tests → merged → End day handled | 2–2.5 min | ~$0.5 |
 | Park and resume | dev hit an unspecified product decision → asked → parked with a checkpoint → lead escalated it to you as multiple-choice → you answered (saved as a fact) → dev resumed → reviewed → merged | ~2.5 min | ~$0.7 |
 
-Releases, modes and Human help are covered by automated tests but haven't had a real Claude Code run yet. Not yet built: a deploy step beyond the Human help checklist, importing in-progress BMad sprints, screenshot comparison, a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0) and the [roadmap](docs/SPEC.md#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
+The MCP policy was checked with a real headless Claude Code run: a read-only tool ran, a delete was blocked with the Human help message, and without the hook the read-only tool was denied. Releases, modes and Human help are covered by automated tests but haven't had a full real run yet. Not yet built: a deploy step beyond the Human help checklist, importing in-progress BMad sprints, screenshot comparison, a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0) and the [roadmap](docs/SPEC.md#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
 ## License
 

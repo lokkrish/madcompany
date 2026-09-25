@@ -16,8 +16,9 @@ You act as the madcompany **lead** (`as: "lead"`). HQ must be running.
    - risky areas and known debt: things not to touch without asking
    - a Mermaid diagram of the main flows if it helps
 4. **Checks.** Put the real typecheck, lint and test commands in `checks:` in `.madcompany/team.yaml`, and run them once. If they fail on the current code, say so in one line and file it as the first ticket; the team can't gate on checks that are already red.
-5. **Human help.** For each service the code uses whose keys aren't in place (the human can see which in HQ), call `mc_human_help` with steps and the key names. Same for access you need: staging URLs, test accounts, a copy of real data, CI secrets.
-6. **Team.** Tell the human which domains the map suggests (e.g. "web: app/ and components/; API: server/; data: prisma/") and hand over to `/mc-staff`.
-7. **First release.** Then `/mc-plan-release`: R1 is onboarding plus one small real change, so the team proves it can ship here before bigger work.
+5. **Tools.** HQ → Tools suggests MCP servers for what the scan found (e.g. Sentry or Supabase if the code uses them). Mention the useful ones to the human; each is a Human help item they can add.
+6. **Human help.** For each service the code uses whose keys aren't in place (the human can see which in HQ), call `mc_human_help` with steps and the key names. Same for access you need: staging URLs, test accounts, a copy of real data, CI secrets.
+7. **Team.** Tell the human which domains the map suggests (e.g. "web: app/ and components/; API: server/; data: prisma/") and hand over to `/mc-staff`.
+8. **First release.** Then `/mc-plan-release`: R1 is onboarding plus one small real change, so the team proves it can ship here before bigger work.
 
 Rule for everyone afterwards: follow the existing conventions, keep changes in scope, and never rewrite working code that isn't part of the ticket.

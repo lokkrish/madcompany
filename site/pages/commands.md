@@ -67,10 +67,11 @@ From BMad Method's current skill list. If a name differs in your version, `/bmad
 | Library | Planning files, UX and mockups, architecture, the codebase map, release notes, meetings, conversations, links |
 | Inbox | Multiple-choice questions for you, change requests, your saved answers |
 | Human help | Everything only you can do, with steps and key checks |
+| Tools | MCP servers, plugins and skills: who uses what, what agents may do without you, suggestions, recent calls |
 | Decisions | What the team decided without you, and why |
 | Team | Agents by department with their models and memory; hiring; the people who use HQ |
 | Preview | Your running app at phone, tablet and desktop widths; comment on any element |
 
 ## The agents' tools
 
-Agents talk to HQ through an MCP server. The main tools: `mc_claim`, `mc_block` (park with a checkpoint), `mc_submit`, `mc_review`, `mc_ask`, `mc_decide`, `mc_design_write`, `mc_human_help`, `mc_memory_write`, `mc_handoff`. The lead also has `mc_release`, `mc_create_ticket`, `mc_escalate`, `mc_ready_for_review` and `mc_wait`, which waits for events without using any Claude usage.
+Agents talk to HQ through an MCP server. The main tools: `mc_claim`, `mc_block` (park with a checkpoint), `mc_submit`, `mc_review`, `mc_ask`, `mc_decide`, `mc_design_write`, `mc_human_help`, `mc_tools` (which MCP servers and plugin skills are theirs), `mc_memory_write`, `mc_handoff`. The lead also has `mc_release`, `mc_create_ticket`, `mc_escalate`, `mc_ready_for_review` and `mc_wait`, which waits for events without using any Claude usage.

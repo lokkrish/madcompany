@@ -3,6 +3,9 @@
 // .madcompany/bin/hook.mjs and must not import anything outside Node itself.
 //  - Stop now: blocks every tool call except madcompany's own while STOP is set.
 //  - Deny list: actions that always need the human (push, deploy, secrets…).
+//  - MCP tools: read-only ones are allowed without a prompt (background agents
+//    can't answer prompts); ones that push, deploy, pay, delete or send go to
+//    the human. Every MCP and skill call is logged (name only, never inputs).
 // Exit 2 blocks the tool call and shows the reason to the agent.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,6 +33,51 @@ const RULES = [
   [/\b(gh\s+secret|vercel\s+env\s+(add|rm)|az\s+keyvault\s+secret|aws\s+secretsmanager|aws\s+ssm\s+put-parameter)\b/, 'Changing secrets.'],
   [/\b(stripe|twilio|sendgrid)\b[^\n;&|]*\b(live|--live)\b/, 'Using live payment or messaging credentials.'],
 ];
+
+// ---------- MCP tools ----------
+// Servers that only work on this machine or only read public docs: all their tools are fine.
+export const LOCAL_SERVERS = /playwright|chrome[-_]?devtools|puppeteer|context7|sequential[-_]?thinking|^memory$|_memory$|deepwiki|microsoft[-_]?docs|next[-_]?devtools/i;
+// Servers that change systems you own or that other people see: only reads are automatic.
+export const REMOTE_SERVERS = /github|gitlab|bitbucket|vercel|netlify|railway|heroku|cloudflare|azure|google|firebase|supabase|planetscale|postgres|mysql|mongo|redis|prisma|stripe|paypal|shopify|revenuecat|twilio|sendgrid|postmark|mailgun|slack|discord|linear|jira|atlassian|notion|asana|trello|clickup|hubspot|salesforce|zendesk|intercom|sentry|datadog|pagerduty|figma|expo|app[-_]?store|play[-_]?console|docker|kubernetes|terraform|pulumi|(^|[_.-])(aws|gcp|neon|render|fly|eas|apple|teams|square|resend|k8s)($|[_.-])/i;
+const READ_VERBS = new Set(['get', 'list', 'search', 'read', 'fetch', 'find', 'describe', 'view', 'show', 'lookup', 'retrieve', 'inspect', 'count', 'browse', 'resolve', 'explain', 'whoami', 'ping', 'status', 'download', 'export', 'preview', 'diff', 'compare', 'validate', 'check']);
+const RISKY = /(^|[_-])(deploy|deployment|publish|release|push|merge|delete|destroy|drop|purge|revoke|rotate|transfer|refund|charge|payout|pay|payment|purchase|buy|invoice|subscribe|subscription|send|email|sms|terminate|shutdown|rollback|promote|migration|execute_sql|run_sql)($|[_-])/i;
+// a read that also creates, sends or changes something ("get_or_create_label") isn't a read
+const WRITES = /(^|[_-])(delete|drop|purge|destroy|deploy|publish|push|merge|refund|charge|payout|send|create|update|write|set|put|patch|execute|run|apply|upload|insert|remove|cancel)($|[_-])/i;
+
+/** mcp__<server>__<tool> (plugins: mcp__plugin_<plugin>_<server>__<tool>) → its parts. */
+export function mcpParts(toolName) {
+  const m = /^mcp__(.+)__([^_].*)$/.exec(String(toolName));
+  if (!m) return null;
+  const tool = m[2];
+  const words = tool.replace(/([a-z])([A-Z])/g, '$1_$2').split(/[_\-\s]+/);
+  return { server: m[1], tool, verb: words[0].toLowerCase(), rest: words.slice(1).join('_') };
+}
+
+const matches = (name, patterns) =>
+  (patterns ?? []).some((p) => {
+    const pat = String(p);
+    if (pat === name || name.startsWith(`${pat}__`)) return true;
+    return pat.includes('*') && new RegExp(`^${pat.split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(name);
+  });
+
+/**
+ * What happens to an MCP tool call: "allow" (no prompt), "human" (blocked;
+ * the agent files Human help) or null (Claude Code's own permissions decide).
+ */
+export function classifyMcp(toolName, policy = {}) {
+  const p = mcpParts(toolName);
+  if (!p || /^madcompany$/.test(p.server)) return { decision: null };
+  const tools = policy.tools ?? {};
+  if (matches(toolName, tools.human)) return { decision: 'human', why: 'team.yaml lists it under tools.human.' };
+  if (matches(toolName, policy.denied)) return { decision: null }; // your own Claude Code deny rule stays in charge
+  if (matches(toolName, tools.allow)) return { decision: 'allow', why: 'allowed in team.yaml (tools.allow)' };
+  const auto = tools.auto_allow !== false;
+  if (LOCAL_SERVERS.test(p.server)) return { decision: auto ? 'allow' : null, why: 'works only on this machine or reads public docs' };
+  if (READ_VERBS.has(p.verb) && !WRITES.test(p.rest)) return { decision: auto ? 'allow' : null, why: 'read-only' };
+  if (RISKY.test(p.tool)) return { decision: 'human', why: `${p.tool} looks like it pushes, deploys, pays, deletes or sends something.` };
+  if (REMOTE_SERVERS.test(p.server)) return { decision: 'human', why: `${p.tool} changes something in ${p.server.replace(/^plugin_/, '')} that people outside the team can see.` };
+  return { decision: null };
+}
 
 export function isSecretFile(p) {
   return /(^|[\\/])\.env(\.local|\.production|\.prod|\.[\w-]+\.local)?$/.test(String(p));
@@ -70,17 +118,31 @@ export function findRoot(cwd) {
   }
 }
 
-export function decide(input, { root }) {
+/**
+ * Returns null (no opinion), a string (block: the reason), or { allow: reason }
+ * for an MCP tool that needs no permission prompt.
+ */
+export function decide(input, { root, policy: given } = {}) {
   const tool = input.tool_name ?? '';
   if (tool.startsWith('mcp__madcompany__')) return null;
   if (fs.existsSync(path.join(root, '.madcompany', 'run', 'STOP'))) {
     return 'madcompany: the human pressed Stop now. Do not continue. End your turn now without further tool calls.';
   }
-  let policy = {};
-  try {
-    policy = JSON.parse(fs.readFileSync(path.join(root, '.madcompany', 'run', 'policy.json'), 'utf8'));
-  } catch {
-    // HQ not started yet: defaults apply
+  let policy = given ?? {};
+  if (!given) {
+    try {
+      policy = JSON.parse(fs.readFileSync(path.join(root, '.madcompany', 'run', 'policy.json'), 'utf8'));
+    } catch {
+      // HQ not started yet: defaults apply
+    }
+  }
+  if (tool.startsWith('mcp__')) {
+    const c = classifyMcp(tool, policy);
+    if (c.decision === 'human') {
+      return `madcompany policy: ${tool} is the human's to run: ${c.why} If it's needed, file it with mc_human_help (what to run and why), or ask the human to allow it for the team in .madcompany/team.yaml (tools.allow). Keep going on a mock meanwhile.`;
+    }
+    if (c.decision === 'allow') return { allow: `madcompany: ${c.why}` };
+    return null;
   }
   if (tool === 'Bash') {
     const why = checkCommand(input.tool_input?.command ?? '', { root, allowPush: policy.allowPush });
@@ -141,6 +203,22 @@ async function saveLinks(root, links) {
   fs.appendFileSync(path.join(dir, 'pending-links.jsonl'), links.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 
+/** Which MCP tools and skills get used, by whom, and what the policy did. Never the inputs. */
+export function logCall(root, input, out) {
+  const tool = String(input.tool_name ?? '');
+  const skill = tool === 'Skill' ? String(input.tool_input?.skill ?? input.tool_input?.command ?? '').slice(0, 80) : null;
+  if (!(tool.startsWith('mcp__') && !tool.startsWith('mcp__madcompany__')) && !skill) return;
+  const decision = typeof out === 'string' ? 'human' : out?.allow ? 'allow' : 'default';
+  const line = { ts: new Date().toISOString(), tool: skill ? `skill:${skill}` : tool, agent: input.agent_type ?? null, decision };
+  try {
+    const dir = path.join(root, '.madcompany', 'run');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'tool-calls.jsonl'), JSON.stringify(line) + '\n');
+  } catch {
+    // logging must never get in the way
+  }
+}
+
 async function main() {
   let input = {};
   try {
@@ -157,10 +235,16 @@ async function main() {
     process.exit(0);
   }
   try {
-    const why = decide(input, { root: findRoot(input.cwd || process.cwd()) });
-    if (why) {
-      process.stderr.write(why + '\n');
+    const root = findRoot(input.cwd || process.cwd());
+    const out = decide(input, { root });
+    logCall(root, input, out);
+    if (typeof out === 'string') {
+      process.stderr.write(out + '\n');
       process.exit(2);
+    }
+    if (out?.allow) {
+      // read-only MCP tools: no permission prompt (background agents can't answer one)
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: out.allow } }));
     }
   } catch {
     // never break the session because of a hook bug

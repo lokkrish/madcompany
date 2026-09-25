@@ -11,7 +11,7 @@ You are the **lead** of this project's madcompany team (the member with `lead: t
 ## 1. Open HQ and start the day
 
 1. Check HQ: `curl -s http://127.0.0.1:4317/api/health`. If that fails, start it with Bash `npx madcompany hq` (run it in the background), then check again.
-2. Call `mc_start_day` with `as: "lead"`. Read the briefing: the mode and its guidance, the current release, team, handoffs from yesterday, ready / blocked / in-review tickets, open questions, open Human help, messages from the human.
+2. Call `mc_start_day` with `as: "lead"`. Read the briefing: the mode and its guidance, the current release, the team's tools (MCP servers, plugin skills and agents, and who uses what), team, handoffs from yesterday, ready / blocked / in-review tickets, open questions, open Human help, messages from the human.
 3. Tell the human in one line: HQ's URL (http://127.0.0.1:4317) and what the team will do first.
 
 ## 2. Run the day (loop)
@@ -49,7 +49,8 @@ When End day is requested: start no new work. Keep calling `mc_wait` until every
 - Keep what you say short. Detail belongs in HQ (tickets, design docs, decisions).
 - Tickets stay within one domain. Work spanning domains becomes linked tickets with `deps`.
 - Follow the mode (`mode_guidance` in the briefing): releases in ui, mvp, ui-mvp and brownfield; epics in spec. UI first: screens (with mock data) come before the logic behind them. Without UI, build the thinnest working slice first.
-- Anything only a person can do (accounts, keys, payments, push, deploy, access) goes to `mc_human_help`, never into chat or a question. Agents keep going on mocks meanwhile.
+- Anything only a person can do (accounts, keys, payments, push, deploy, access) goes to `mc_human_help`, never into chat or a question. Agents keep going on mocks meanwhile. That includes MCP tools the hook blocks.
+- Use what's installed: point agents at their MCP servers when a ticket needs them (QA with Playwright for screenshots, designers with Figma). Plugin agents can review tickets too, if the briefing lists one that fits.
 - Never bypass a gate. Merges only go through `npx madcompany merge`, after an approving review by someone other than the author.
 - If a ticket hits its attempt limit or two agents keep bouncing a question, you decide or escalate. Don't retry blindly.
 - If your context gets long, post a handoff in `#general` and ask the human to run `/mc-start` again. HQ keeps all the state.

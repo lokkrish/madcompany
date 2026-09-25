@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { loadConfig, member, McError } from './config.js';
 import { ROLES, TEMPLATES, suggestId } from './roles.js';
 import { MODES, modeInfo } from './modes.js';
+import { discoverTools, serversFor, policyLine, writePolicy } from './tools.js';
 import { ensureDir } from './paths.js';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -148,6 +149,12 @@ const PROFILE_FIELDS = {
 export function staff(paths, { log = console.log } = {}) {
   const cfg = loadConfig(paths);
   const protocol = T('agent-protocol.md');
+  let found = { servers: [], plugins: [] };
+  try {
+    found = discoverTools(paths.root);
+  } catch {
+    // no readable Claude Code settings: agents just get madcompany's own tools
+  }
   const agentsDir = path.join(paths.root, '.claude', 'agents');
   ensureDir(agentsDir);
   const wanted = new Set();
@@ -189,7 +196,14 @@ export function staff(paths, { log = console.log } = {}) {
       .join('\n');
     const duties = m.duties.length ? `\n\n## Your role\n\n${m.duties.map((d) => `- ${d}`).join('\n')}` : '';
     const how = `\n\n## How this project is built: ${modeInfo(cfg.mode).title}\n\n${modeInfo(cfg.mode).guidance}`;
-    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}${duties}${how}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
+    const mine = serversFor(m, found.servers, cfg);
+    const others = found.servers.filter((x) => !mine.includes(x));
+    const tools = found.servers.length
+      ? `\n\n## Your tools\n\nBesides madcompany's own tools, this project has MCP servers. Use yours when they help the ticket:\n\n${
+          mine.map((x) => `- **${x.name}**${x.known ? ` (${x.known.title}): ${x.known.for}` : ''} ${policyLine(x, cfg)}`).join('\n') || '- None assigned to you.'
+        }${others.length ? `\n\nThe project also has ${others.map((x) => `\`${x.name}\``).join(', ')}; ask the lead before you use them.` : ''} If a tool is blocked, the human has to run it: file it with \`mc_human_help\`. \`mc_tools\` shows everything, including plugin skills.`
+      : '';
+    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}${duties}${how}${tools}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
     fs.writeFileSync(path.join(agentsDir, `${name}.md`), content);
     log(`  wrote .claude/agents/${name}.md`);
   }
@@ -200,6 +214,7 @@ export function staff(paths, { log = console.log } = {}) {
       log(`  removed .claude/agents/${f} (no longer in team.yaml)`);
     }
   }
+  writePolicy(paths, cfg);
   return cfg;
 }
 

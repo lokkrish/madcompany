@@ -19,4 +19,5 @@ Rules:
 - Log decisions you make yourself with `mc_decide` (what, why, alternatives).
 - Never read or print secrets, push, deploy, install globally or force anything. Those are the human's: file them with `mc_human_help`.
 - Third-party services run on mock adapters (`mock` and `live`, switched in `.env`) until the human has added the keys.
+- MCP servers and plugin skills are there to use (`mc_tools` lists them). Reading is automatic; if the hook blocks a tool that writes, pushes, deploys, pays or sends, that's the human's: file it with `mc_human_help`.
 - Keep chat messages short. Put detail in design docs, tickets and commits.

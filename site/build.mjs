@@ -24,6 +24,7 @@ const NAV = [
   ['index', 'Overview'],
   ['workflows', 'Workflows'],
   ['human-help', 'Human help'],
+  ['mcp-and-plugins', 'MCP & plugins'],
   ['commands', 'Commands'],
 ];
 

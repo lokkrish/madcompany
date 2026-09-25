@@ -23,6 +23,7 @@ First version.
 - Releases (R1, R2…) for the release-based modes: `/mc-plan-release`, `release/rN` branches, review in HQ → Releases (approve or request changes), release notes, and `madcompany ship` to merge an approved release into main and tag it
 - Human help: everything only a person can do (accounts, keys, service setup, payments, push and deploy, access) in one HQ page with steps, `.env` key checks that never read values, and parked tickets that resume when an item is done; agents file items with `mc_human_help`
 - Brownfield onboarding: `madcompany scan` and `/mc-scan` write a codebase map and set the real checks
+- MCP servers and plugins: HQ → Tools lists servers, plugins, skills and plugin agents; each agent learns its own servers by role; `mc_tools`; the safety hook lets read-only MCP tools run unattended and sends pushes, deploys, payments, deletes and remote writes to Human help; `tools.allow` / `tools.human` in `team.yaml`; server suggestions for your stack; a call log without inputs
 - GitHub Pages site (`site/`, `npm run site`) with the overview, the five workflows and a command reference
 - `madcompany demo` for a sample project
 - File formats: `.madcompany/team.yaml`, `log/events.jsonl` (append-only; readable copies in `log/*.md`), `ids.json`, `agents/<id>/{identity,work,comms}.md`
