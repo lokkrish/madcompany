@@ -1,9 +1,8 @@
 name: pages
-# Publishes the site (site/) to GitHub Pages on every push to main.
+# Publishes the site (site/) to GitHub Pages from the repository's default branch.
 # One-time setup: Settings → Pages → Build and deployment → Source: GitHub Actions.
 on:
   push:
-    branches: [main]
     paths: ['site/**', 'docs/images/**', 'src/modes.js', 'package.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
@@ -11,10 +10,11 @@ permissions:
   pages: write
   id-token: write
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
+    # other branches only build (catching broken links); the default branch publishes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,11 +23,14 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run site
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.ref_name == github.event.repository.default_branch
+        uses: actions/configure-pages@v5
+      - if: github.ref_name == github.event.repository.default_branch
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
   deploy:
+    if: github.ref_name == github.event.repository.default_branch
     needs: build
     runs-on: ubuntu-latest
     environment:
