@@ -54,7 +54,7 @@ export async function mergeTicket(paths, client, config, id, { log = console.log
     const t = await client.call('ticket', id);
     const { reason: why } = await client.call('canMerge', t.id);
     if (why) throw new Error(why);
-    const branch = `sf/${t.id.toLowerCase()}`;
+    const branch = `mc/${t.id.toLowerCase()}`;
     if (!branchExists(paths.root, branch)) throw new Error(`Branch ${branch} doesn't exist. The agent must commit on it before review.`);
     const base = await client.call('epicBranch', t.id);
     const wt = ensureEpicWorktree(paths, base);
@@ -94,12 +94,12 @@ export async function mergeTicket(paths, client, config, id, { log = console.log
 /** Commit HQ's logs, facts and design docs on the main checkout (HQ-8). Touches nothing else. */
 export function snapshot(paths, { log = console.log } = {}) {
   const { root } = paths;
-  const targets = ['.storyfront', 'docs/design'].filter((p) => fs.existsSync(path.join(root, p)));
+  const targets = ['.madcompany', 'docs/design'].filter((p) => fs.existsSync(path.join(root, p)));
   if (!targets.length) return log('Nothing to snapshot.');
   git(root, ['add', '--', ...targets]);
   const dirty = !git(root, ['diff', '--cached', '--quiet', '--', ...targets], { allowFail: true }).ok;
   if (!dirty) return log('Nothing new to snapshot.');
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  git(root, ['commit', '-m', `storyfront: snapshot ${stamp}`, '--', ...targets]);
-  log(`Committed Storyfront logs and design docs (${git(root, ['rev-parse', '--short', 'HEAD']).out}).`);
+  git(root, ['commit', '-m', `madcompany: snapshot ${stamp}`, '--', ...targets]);
+  log(`Committed madcompany logs and design docs (${git(root, ['rev-parse', '--short', 'HEAD']).out}).`);
 }

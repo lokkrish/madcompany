@@ -1,4 +1,4 @@
-/* Storyfront HQ — a small no-build web app. State comes from /api/state and refreshes live over /api/stream. */
+/* madcompany HQ — a small no-build web app. State comes from /api/state and refreshes live over /api/stream. */
 'use strict';
 
 let S = null; // latest /api/state
@@ -84,7 +84,7 @@ async function refresh() {
   const badge = document.getElementById('inbox-badge');
   badge.hidden = n === 0;
   badge.textContent = n;
-  document.title = `${n ? `(${n}) ` : ''}${S.config.project.name} · Storyfront HQ`;
+  document.title = `${n ? `(${n}) ` : ''}${S.config.project.name} · madcompany HQ`;
   render();
 }
 
@@ -193,7 +193,7 @@ function dashboard() {
     <div class="grow"><h1>${esc(d.project.name)}</h1><div class="sub">Workday ${pill(wd, wd === 'on' ? 'ON' : wd.toUpperCase())} ${d.workday.since ? `since ${clock(d.workday.since)}` : ''}</div></div>
     ${wd === 'on' ? '<button data-act="end">End day</button>' : ''}
     ${wd === 'on' || wd === 'ending' ? '<button class="danger" data-act="stop">Stop now</button>' : ''}
-    ${wd === 'off' || wd === 'stopped' ? '<span class="sub">Start the day with <code>/sf-start</code> in Claude Code.</span>' : ''}
+    ${wd === 'off' || wd === 'stopped' ? '<span class="sub">Start the day with <code>/mc-start</code> in Claude Code.</span>' : ''}
   </div>
   <div class="grid g3">
     <a class="card ${d.needsYou.length ? 'needs' : ''}" href="#/inbox" style="color:inherit;text-decoration:none"><h3>Needs you</h3><div class="big">${d.needsYou.length}</div><div class="sub">${d.needsYou[0] ? esc(d.needsYou[0].question) : 'Nothing waiting on you.'}</div></a>
@@ -351,7 +351,7 @@ function inbox(r) {
 
 function decisions() {
   const list = [...S.decisions].reverse();
-  return `<div class="top"><h1 class="grow">Decisions</h1><span class="sub">Made by the team without you. Also saved in <a href="#/file/.storyfront/log/decisions.md">.storyfront/log/decisions.md</a></span></div>
+  return `<div class="top"><h1 class="grow">Decisions</h1><span class="sub">Made by the team without you. Also saved in <a href="#/file/.madcompany/log/decisions.md">.madcompany/log/decisions.md</a></span></div>
   <div class="stack">${
     list
       .map(
@@ -471,7 +471,7 @@ function wire(r) {
   );
   $main.querySelectorAll('[data-act="stop"]').forEach((b) =>
     b.addEventListener('click', async () => {
-      if (confirm('Stop now? Every agent is blocked at its next action. Resume tomorrow with /sf-start.')) await act(() => api('/api/workday', { action: 'stop' }));
+      if (confirm('Stop now? Every agent is blocked at its next action. Resume tomorrow with /mc-start.')) await act(() => api('/api/workday', { action: 'stop' }));
     }),
   );
   $main.querySelector('[data-act="dm"]')?.addEventListener('click', () => {

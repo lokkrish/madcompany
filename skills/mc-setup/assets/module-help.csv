@@ -1,0 +1,8 @@
+module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
+madcompany,mc-setup,Set up madcompany,SS,"Install madcompany in this project (.madcompany, MCP server, safety hook).",setup,,anytime,,mc-staff,true,,.madcompany
+madcompany,mc-staff,Staff the team,ST,"Choose roles, domains and models; generate one agent per member.",staff,,implementation,mc-setup,mc-plan-epic,true,,.madcompany/team.yaml
+madcompany,mc-plan-epic,Plan an epic,PE,"Import BMad stories as tickets, anchor IDs, split into single-domain tickets.",plan,[epic],implementation,mc-staff,mc-ui-sprint,true,,tickets in HQ
+madcompany,mc-ui-sprint,UI sprint,UI,"Build clickable screens with the human, sign off, derive the API contract.",ui-sprint,[epic],implementation,mc-plan-epic,mc-start,false,,docs/design
+madcompany,mc-start,Start the workday,SD,"Become the lead and run the agent team until the day ends.",start,,implementation,mc-plan-epic,mc-end-day,true,,
+madcompany,mc-end-day,End the day,ED,"Agents hand off; logs are committed.",end-day,,implementation,mc-start,,false,,
+madcompany,mc-stop,Stop now,SN,"Block every agent's next action immediately.",stop,,anytime,,,false,,

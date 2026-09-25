@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { SfError, loadConfig } from '../config.js';
+import { McError, loadConfig } from '../config.js';
 import { ensureDir, isHiddenPath, safeJoin } from '../paths.js';
 import { buildRegistry, hqEntries, writeRegistry } from '../refs/ids.js';
 import { Store, describeEvent } from './store.js';
@@ -18,7 +18,7 @@ const UI_DIR = path.join(here, '..', '..', 'ui');
 const VERSION = JSON.parse(fs.readFileSync(path.join(here, '..', '..', 'package.json'), 'utf8')).version;
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
-// CLI operations HQ accepts from `npx storyfront ...` (header-gated, see guard()).
+// CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
 const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env']);
 
 export function createHq({ paths, port = 4317, quiet = false }) {
@@ -54,7 +54,7 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     const host = req.headers.host ?? '';
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return deny(res, 421, 'Wrong host');
     const o = req.headers.origin;
-    if (cli && req.headers['x-storyfront-cli'] !== '1') return deny(res, 403, 'CLI only');
+    if (cli && req.headers['x-madcompany-cli'] !== '1') return deny(res, 403, 'CLI only');
     if (!o) return true;
     if (origin().includes(o)) return true;
     if (widget && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return true;
@@ -186,7 +186,7 @@ export function createHq({ paths, port = 4317, quiet = false }) {
       else res.end();
     });
   });
-  server.requestTimeout = 0; // sf_wait can hold a request for minutes
+  server.requestTimeout = 0; // mc_wait can hold a request for minutes
 
   return {
     core,
@@ -239,7 +239,7 @@ function ok(res, fn) {
   try {
     return json(res, 200, fn() ?? { ok: true });
   } catch (err) {
-    if (err instanceof SfError) return json(res, 400, { error: err.message });
+    if (err instanceof McError) return json(res, 400, { error: err.message });
     throw err;
   }
 }
@@ -255,13 +255,13 @@ async function readJson(req) {
   let size = 0;
   for await (const c of req) {
     size += c.length;
-    if (size > 5 * 1024 * 1024) throw new SfError('Request too large');
+    if (size > 5 * 1024 * 1024) throw new McError('Request too large');
     chunks.push(c);
   }
   if (!chunks.length) return {};
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
-    throw new SfError('Invalid JSON');
+    throw new McError('Invalid JSON');
   }
 }

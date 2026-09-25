@@ -12,7 +12,7 @@ import { parseEpics, storyTickets, findBmadDocs } from '../src/bmad/import.js';
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'examples', 'tiny-tasks');
 
 function copyFixture() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-refs-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-refs-'));
   fs.cpSync(FIX, dir, { recursive: true });
   return dir;
 }

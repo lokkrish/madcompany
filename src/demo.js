@@ -4,7 +4,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { sfPaths } from './paths.js';
+import { mcPaths } from './paths.js';
 import { init, staff } from './setup.js';
 import { connect } from './client.js';
 import { importBmad } from './bmad/run.js';
@@ -48,7 +48,7 @@ export function wireframePng(file, { accent = [31, 111, 235], rows = 4, button =
 function demoCommit(root, branch, file) {
   const g = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
   const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: `// ${branch}\n`, encoding: 'utf8' }).trim();
-  const tmpIndex = path.join(os.tmpdir(), `sf-demo-index-${process.pid}`);
+  const tmpIndex = path.join(os.tmpdir(), `mc-demo-index-${process.pid}`);
   const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
   execFileSync('git', ['read-tree', 'HEAD'], { cwd: root, env });
   execFileSync('git', ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`], { cwd: root, env });
@@ -77,11 +77,11 @@ export async function createDemo(dir, { log = console.log } = {}) {
   fs.mkdirSync(root, { recursive: true });
   const g = (...a) => execFileSync('git', a, { cwd: root, stdio: 'ignore' });
   g('init', '-q', '-b', 'main');
-  g('config', 'user.email', 'demo@storyfront.local');
-  g('config', 'user.name', 'Storyfront demo');
+  g('config', 'user.email', 'demo@madcompany.local');
+  g('config', 'user.name', 'madcompany demo');
   fs.cpSync(path.join(PKG, 'examples', 'tiny-tasks'), root, { recursive: true });
-  fs.writeFileSync(path.join(root, 'README.md'), '# Tiny Tasks\n\nA demo app planned with BMad Method and built by a Storyfront team.\n');
-  const paths = sfPaths(root);
+  fs.writeFileSync(path.join(root, 'README.md'), '# Tiny Tasks\n\nA demo app planned with BMad Method and built by a madcompany team.\n');
+  const paths = mcPaths(root);
   init(paths, { log: () => {} });
   fs.writeFileSync(
     paths.team,
@@ -92,7 +92,7 @@ export async function createDemo(dir, { log = console.log } = {}) {
   );
   staff(paths, { log: () => {} });
   g('add', '-A');
-  g('commit', '-q', '-m', 'Plan: Tiny Tasks (BMad) + Storyfront setup');
+  g('commit', '-q', '-m', 'Plan: Tiny Tasks (BMad) + madcompany setup');
 
   const c = await connect(paths);
   const call = (op, ...a) => c.call(op, ...a);
@@ -111,19 +111,19 @@ export async function createDemo(dir, { log = console.log } = {}) {
     content: '# Sessions API\n\nCovers [FR1](../../../_bmad-output/planning-artifacts/prd.md#fr1).\n\n```mermaid\nsequenceDiagram\n  App->>API: POST /sessions {email, password}\n  API-->>App: 201 {token}\n```\n\n| Method | Path | Body | Returns |\n|---|---|---|---|\n| POST | /users | email, password | 201 user |\n| POST | /sessions | email, password | 201 token |\n',
   });
   core.designApprove('lena', 'docs/design/auth/sessions.md');
-  demoCommit(root, 'sf/tt-4', 'docs/design/auth/.keep');
+  demoCommit(root, 'mc/tt-4', 'docs/design/auth/.keep');
   core.submit('arjun', 'TT-4', { summary: 'Sessions contract agreed: docs/design/auth/sessions.md', checks: { lint: 'pass', test: 'n/a' } });
   core.review('lead', 'TT-4', { verdict: 'approve', notes: 'Contract is clear.' });
   core.markMerged('cli', 'TT-4', { sha: 'a1b2c3d', commits: ['a1b2c3d docs: sessions contract'] });
   core.decide('arjun', { title: 'JWT in secure storage', decision: 'Store the session token with expo-secure-store', why: 'Tokens must not sit in AsyncStorage (plain text)', alternatives: 'AsyncStorage, cookies', ticket: 'TT-4' });
 
   core.claim('lena', 'TT-1');
-  const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-demo-shots-'));
+  const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-demo-shots-'));
   wireframePng(path.join(shots, 'signup.png'), { rows: 2 });
   core.attach('lena', 'TT-1', { path: path.join(shots, 'signup.png'), caption: 'Sign-up screen, 390×844' });
   core.ask('lena', { to: 'arjun', question: 'Do you return field-level errors for a taken email?', ticket: 'TT-1' });
   core.answer('arjun', 'Q-1', 'Yes: 409 with {field:"email", code:"taken"}. Added to the contract.');
-  demoCommit(root, 'sf/tt-1', 'app/signup.tsx');
+  demoCommit(root, 'mc/tt-1', 'app/signup.tsx');
   core.submit('lena', 'TT-1', { summary: 'Sign-up screen with validation, mock API client', checks: { typecheck: 'pass', lint: 'pass', test: 'pass' } });
   core.review('qa', 'TT-1', { verdict: 'approve', notes: 'Checked on 390 and 820 widths.' });
   core.markMerged('cli', 'TT-1', { sha: 'e4f5a6b', commits: ['e4f5a6b feat(signup): screen + validation'] });
@@ -140,6 +140,6 @@ export async function createDemo(dir, { log = console.log } = {}) {
   core.memoryWrite('arjun', 'work', '# arjun: work memory\n\n- Owns docs/design/auth/sessions.md (agreed v1)\n- Sessions: bcrypt + JWT, token in expo-secure-store (DEC-1)\n');
   fs.rmSync(shots, { recursive: true, force: true });
   await c.close();
-  log(`Demo project ready: ${root}\nRun:  cd ${root} && npx storyfront hq`);
+  log(`Demo project ready: ${root}\nRun:  cd ${root} && npx madcompany hq`);
   return root;
 }

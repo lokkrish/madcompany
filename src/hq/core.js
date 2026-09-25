@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { SfError, member } from '../config.js';
+import { McError, member } from '../config.js';
 import { ensureDir } from '../paths.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'in_review', 'done'];
@@ -22,16 +22,16 @@ export function createCore({ store, config, paths }) {
   function actor(as, { allowHuman = false, allowCli = false } = {}) {
     if (allowHuman && as === HUMAN) return HUMAN;
     if (allowCli && as === 'cli') return 'cli';
-    if (!isMember(as)) throw new SfError(`Unknown team member "${as}". Pass your own id as "as" (one of: ${config.team.map((m) => m.id).join(', ')}).`);
+    if (!isMember(as)) throw new McError(`Unknown team member "${as}". Pass your own id as "as" (one of: ${config.team.map((m) => m.id).join(', ')}).`);
     return as;
   }
   function leadOnly(as, what, { allowHuman = false, allowCli = false } = {}) {
     if (as === lead || (allowHuman && as === HUMAN) || (allowCli && as === 'cli')) return as;
-    throw new SfError(`Only the lead can ${what}.`);
+    throw new McError(`Only the lead can ${what}.`);
   }
   function ticket(id) {
     const t = s().tickets[String(id ?? '').toUpperCase()];
-    if (!t) throw new SfError(`No ticket ${id}.`);
+    if (!t) throw new McError(`No ticket ${id}.`);
     return t;
   }
   const isDone = (id) => {
@@ -54,8 +54,8 @@ export function createCore({ store, config, paths }) {
     const st = s().workday.state;
     if (as === lead || as === HUMAN || as === 'cli') return null;
     if (st === 'stopped') return 'STOP: stop now. End your turn immediately without further tool calls.';
-    if (st === 'ending') return 'END_DAY: finish your current step, then call sf_block (with a checkpoint) or sf_submit, then sf_handoff, then end your turn.';
-    if (st === 'off') return 'WORKDAY_OFF: the workday is off. Call sf_handoff and end your turn.';
+    if (st === 'ending') return 'END_DAY: finish your current step, then call mc_block (with a checkpoint) or mc_submit, then mc_handoff, then end your turn.';
+    if (st === 'off') return 'WORKDAY_OFF: the workday is off. Call mc_handoff and end your turn.';
     return null;
   }
 
@@ -89,12 +89,12 @@ export function createCore({ store, config, paths }) {
     const c = String(channel ?? 'general').trim().replace(/^#/, '');
     if (c.startsWith('dm:')) {
       const other = c.slice(3).split('+').find((x) => x !== as) ?? c.slice(3);
-      if (!isMember(other) && other !== HUMAN) throw new SfError(`Unknown DM recipient "${other}".`);
+      if (!isMember(other) && other !== HUMAN) throw new McError(`Unknown DM recipient "${other}".`);
       return `dm:${[as, other].sort().join('+')}`;
     }
     if (c.startsWith('ticket:')) return `ticket:${ticket(c.slice(7)).id}`;
     if (/^(general|contracts|epic-\d+)$/.test(c)) return c;
-    throw new SfError(`Unknown channel "${channel}". Use general, contracts, epic-N, dm:<id> or ticket:<ID>.`);
+    throw new McError(`Unknown channel "${channel}". Use general, contracts, epic-N, dm:<id> or ticket:<ID>.`);
   }
 
   // ---------- cursors (unread tracking; runtime only) ----------
@@ -234,7 +234,7 @@ export function createCore({ store, config, paths }) {
     leadOnly(as, 'close the day', { allowHuman: true, allowCli: true });
     const working = teamView().filter((m) => m.status === 'working' && m.id !== lead);
     if (working.length && s().workday.state !== 'stopped') {
-      throw new SfError(`Still working: ${working.map((m) => `${m.id} (${m.ticket})`).join(', ')}. Wait for their handoffs, or use Stop now.`);
+      throw new McError(`Still working: ${working.map((m) => `${m.id} (${m.ticket})`).join(', ')}. Wait for their handoffs, or use Stop now.`);
     }
     store.append('workday.end', as);
     return { workday: s().workday };
@@ -245,15 +245,15 @@ export function createCore({ store, config, paths }) {
     const out = [];
     for (const d of deps ?? []) {
       const id = String(d).toUpperCase();
-      if (id === selfId) throw new SfError(`${selfId} can't depend on itself.`);
-      if (!s().tickets[id]) throw new SfError(`Dependency ${id} doesn't exist.`);
+      if (id === selfId) throw new McError(`${selfId} can't depend on itself.`);
+      if (!s().tickets[id]) throw new McError(`Dependency ${id} doesn't exist.`);
       out.push(id);
     }
     if (selfId) {
       // reject cycles
       const seen = new Set();
       const walk = (id) => {
-        if (id === selfId) throw new SfError(`That dependency would create a cycle through ${selfId}.`);
+        if (id === selfId) throw new McError(`That dependency would create a cycle through ${selfId}.`);
         if (seen.has(id)) return;
         seen.add(id);
         for (const n of s().tickets[id]?.deps ?? []) walk(n);
@@ -265,12 +265,12 @@ export function createCore({ store, config, paths }) {
 
   function createTicket(as, f) {
     leadOnly(as, 'create tickets', { allowHuman: true, allowCli: true });
-    if (!f?.title) throw new SfError('A ticket needs a title.');
+    if (!f?.title) throw new McError('A ticket needs a title.');
     if (f.source) {
       const existing = Object.values(s().tickets).find((t) => t.source === f.source);
       if (existing) return { ticket: briefTicket(existing), existing: true };
     }
-    if (f.assignee && !isMember(f.assignee)) throw new SfError(`Unknown assignee "${f.assignee}".`);
+    if (f.assignee && !isMember(f.assignee)) throw new McError(`Unknown assignee "${f.assignee}".`);
     const id = nextId('ticket', config.project.key);
     const deps = checkDeps(f.deps);
     if (f.epic && !s().epics[f.epic]) store.append('epic.upsert', as, { id: f.epic, title: f.epicTitle ?? f.epic, phase: 'build' });
@@ -296,7 +296,7 @@ export function createCore({ store, config, paths }) {
     const clean = {};
     for (const k of ['title', 'body', 'domain', 'ui', 'epic', 'refs']) if (k in fields) clean[k] = fields[k];
     if ('deps' in fields) clean.deps = checkDeps(fields.deps, t.id);
-    if (!Object.keys(clean).length) throw new SfError('Nothing to update.');
+    if (!Object.keys(clean).length) throw new McError('Nothing to update.');
     store.append('ticket.update', as, { id: t.id, fields: clean });
     return { ticket: briefTicket(t) };
   }
@@ -304,7 +304,7 @@ export function createCore({ store, config, paths }) {
   function assign(as, id, agent) {
     leadOnly(as, 'assign tickets', { allowCli: true });
     const t = ticket(id);
-    if (!isMember(agent)) throw new SfError(`Unknown agent "${agent}".`);
+    if (!isMember(agent)) throw new McError(`Unknown agent "${agent}".`);
     store.append('ticket.assign', as, { id: t.id, agent });
     return { ticket: briefTicket(t) };
   }
@@ -326,15 +326,15 @@ export function createCore({ store, config, paths }) {
   function claim(as, id) {
     actor(as);
     const ctl = workdayControl(as);
-    if (ctl) throw new SfError(ctl);
+    if (ctl) throw new McError(ctl);
     const t = ticket(id);
-    if (t.assignee && t.assignee !== as) throw new SfError(`${t.id} is assigned to ${t.assignee}.`);
-    if (t.status === 'done' || t.status === 'in_review') throw new SfError(`${t.id} is ${t.status}.`);
-    if (t.status === 'in_progress' && t.assignee !== as) throw new SfError(`${t.id} is being worked on by ${t.assignee}.`);
-    if (!depsDone(t)) throw new SfError(`${t.id} depends on ${t.deps.filter((d) => !isDone(d)).join(', ')}, which aren't done yet.`);
-    if (t.status === 'blocked' && !blockersDone(t)) throw new SfError(`${t.id} is still blocked by ${t.blockedBy.filter((d) => !isDone(d)).join(', ')}.`);
+    if (t.assignee && t.assignee !== as) throw new McError(`${t.id} is assigned to ${t.assignee}.`);
+    if (t.status === 'done' || t.status === 'in_review') throw new McError(`${t.id} is ${t.status}.`);
+    if (t.status === 'in_progress' && t.assignee !== as) throw new McError(`${t.id} is being worked on by ${t.assignee}.`);
+    if (!depsDone(t)) throw new McError(`${t.id} depends on ${t.deps.filter((d) => !isDone(d)).join(', ')}, which aren't done yet.`);
+    if (t.status === 'blocked' && !blockersDone(t)) throw new McError(`${t.id} is still blocked by ${t.blockedBy.filter((d) => !isDone(d)).join(', ')}.`);
     if (t.attempts >= config.limits.attempts) {
-      throw new SfError(`${t.id} has hit its limit of ${config.limits.attempts} attempts. Don't retry: ask the lead with sf_ask.`);
+      throw new McError(`${t.id} has hit its limit of ${config.limits.attempts} attempts. Don't retry: ask the lead with mc_ask.`);
     }
     store.append('ticket.claim', as, { id: t.id });
     const depNotes = t.deps.map((d) => {
@@ -359,7 +359,7 @@ export function createCore({ store, config, paths }) {
   function ticketInfo(as, id) {
     actor(as, { allowHuman: true, allowCli: true });
     const t = ticket(id);
-    const branch = `sf/${t.id.toLowerCase()}`;
+    const branch = `mc/${t.id.toLowerCase()}`;
     return {
       ...t,
       activity: t.activity.slice(-15),
@@ -381,7 +381,7 @@ export function createCore({ store, config, paths }) {
     return head && head !== 'HEAD' ? head : 'HEAD';
   }
   function newCommits(t) {
-    const r = spawnSync('git', ['rev-list', '--count', `${baseRef(t)}..sf/${t.id.toLowerCase()}`], { cwd: paths.root, encoding: 'utf8' });
+    const r = spawnSync('git', ['rev-list', '--count', `${baseRef(t)}..mc/${t.id.toLowerCase()}`], { cwd: paths.root, encoding: 'utf8' });
     return r.status === 0 ? Number(r.stdout.trim()) : 0;
   }
 
@@ -392,26 +392,26 @@ export function createCore({ store, config, paths }) {
    * ticket branch to their HEAD.
    */
   function gitPlan(t) {
-    const branch = `sf/${t.id.toLowerCase()}`;
+    const branch = `mc/${t.id.toLowerCase()}`;
     const base = epicBranch(t);
     return {
       branch,
       base,
       start: `git switch --detach ${branch} 2>/dev/null || git switch --detach ${base} 2>/dev/null || git switch --detach`,
       save: `git add -A && git commit -qm "${t.id}: <what changed>"; git branch -f ${branch} HEAD`,
-      note: `Run git in your current directory (your own worktree); never cd elsewhere and never check out ${branch}. Run "save" after every meaningful step and before sf_block or sf_submit.`,
+      note: `Run git in your current directory (your own worktree); never cd elsewhere and never check out ${branch}. Run "save" after every meaningful step and before mc_block or mc_submit.`,
     };
   }
 
   function mustOwn(as, t, st) {
-    if (t.assignee !== as) throw new SfError(`${t.id} isn't yours (assignee: ${t.assignee ?? 'nobody'}).`);
-    if (st && t.status !== st) throw new SfError(`${t.id} is ${t.status}, expected ${st}.`);
+    if (t.assignee !== as) throw new McError(`${t.id} isn't yours (assignee: ${t.assignee ?? 'nobody'}).`);
+    if (st && t.status !== st) throw new McError(`${t.id} is ${t.status}, expected ${st}.`);
   }
 
   function log(as, id, text) {
     actor(as);
     const t = ticket(id);
-    if (!text) throw new SfError('Empty log entry.');
+    if (!text) throw new McError('Empty log entry.');
     store.append('ticket.worklog', as, { id: t.id, text: String(text) });
     return { ok: true, control: workdayControl(as) };
   }
@@ -421,19 +421,19 @@ export function createCore({ store, config, paths }) {
     const t = ticket(id);
     mustOwn(as, t, 'in_progress');
     const blockedBy = (f.blockedBy ?? []).map((b) => String(b).toUpperCase());
-    if (!blockedBy.length) throw new SfError('Say what blocks it: blockedBy is a list of ticket or question IDs.');
-    for (const b of blockedBy) if (!s().tickets[b] && !s().questions[b]) throw new SfError(`${b} isn't a ticket or question ID.`);
-    if (!f.done || !f.next) throw new SfError('A checkpoint needs "done" (what is finished) and "next" (the exact next step).');
+    if (!blockedBy.length) throw new McError('Say what blocks it: blockedBy is a list of ticket or question IDs.');
+    for (const b of blockedBy) if (!s().tickets[b] && !s().questions[b]) throw new McError(`${b} isn't a ticket or question ID.`);
+    if (!f.done || !f.next) throw new McError('A checkpoint needs "done" (what is finished) and "next" (the exact next step).');
     store.append('ticket.checkpoint', as, { id: t.id, done: f.done, next: f.next, files: f.files ?? [], questions: f.questions ?? [] });
     store.append('ticket.status', as, { id: t.id, status: 'blocked', blockedBy });
-    return { ok: true, message: `${t.id} parked. Commit your work in progress, then call sf_next or end your turn.`, control: workdayControl(as) };
+    return { ok: true, message: `${t.id} parked. Commit your work in progress, then call mc_next or end your turn.`, control: workdayControl(as) };
   }
 
   function checkpoint(as, id, f = {}) {
     actor(as);
     const t = ticket(id);
     mustOwn(as, t);
-    if (!f.done || !f.next) throw new SfError('A checkpoint needs "done" and "next".');
+    if (!f.done || !f.next) throw new McError('A checkpoint needs "done" and "next".');
     store.append('ticket.checkpoint', as, { id: t.id, done: f.done, next: f.next, files: f.files ?? [], questions: f.questions ?? [] });
     return { ok: true, control: workdayControl(as) };
   }
@@ -442,31 +442,31 @@ export function createCore({ store, config, paths }) {
     actor(as);
     const t = ticket(id);
     mustOwn(as, t, 'in_progress');
-    if (!f.summary) throw new SfError('A work-log summary is required before review.');
+    if (!f.summary) throw new McError('A work-log summary is required before review.');
     const checks = f.checks ?? {};
-    if (!Object.keys(checks).length) throw new SfError('Report your checks, e.g. {"typecheck":"pass","lint":"pass","test":"pass"}. Use "n/a" where a check does not exist yet.');
+    if (!Object.keys(checks).length) throw new McError('Report your checks, e.g. {"typecheck":"pass","lint":"pass","test":"pass"}. Use "n/a" where a check does not exist yet.');
     const failing = Object.entries(checks).filter(([, v]) => v !== 'pass' && v !== 'n/a');
-    if (failing.length) throw new SfError(`Fix failing checks first: ${failing.map(([k, v]) => `${k}=${v}`).join(', ')}.`);
+    if (failing.length) throw new McError(`Fix failing checks first: ${failing.map(([k, v]) => `${k}=${v}`).join(', ')}.`);
     if (isGitRepo()) {
       const { branch, save } = gitPlan(t);
-      if (!branchExists(branch)) throw new SfError(`Branch ${branch} doesn't exist yet. Commit your work and run: ${save}`);
-      if (newCommits(t) === 0) throw new SfError(`${branch} has no commits beyond ${baseRef(t)}. Your work is probably on another branch: commit it and run \`git branch -f ${branch} HEAD\`, then submit again.`);
+      if (!branchExists(branch)) throw new McError(`Branch ${branch} doesn't exist yet. Commit your work and run: ${save}`);
+      if (newCommits(t) === 0) throw new McError(`${branch} has no commits beyond ${baseRef(t)}. Your work is probably on another branch: commit it and run \`git branch -f ${branch} HEAD\`, then submit again.`);
     }
     if (t.ui && !t.attachments.some((a) => a.kind === 'screenshot')) {
-      throw new SfError(`${t.id} is a UI ticket: attach at least one screenshot with sf_attach before review.`);
+      throw new McError(`${t.id} is a UI ticket: attach at least one screenshot with mc_attach before review.`);
     }
     store.append('ticket.worklog', as, { id: t.id, text: String(f.summary), checks });
     if (f.commits?.length) store.append('ticket.commit', as, { id: t.id, commits: f.commits.map(String) });
     store.append('ticket.status', as, { id: t.id, status: 'in_review' });
-    return { ok: true, message: `${t.id} is in review. Call sf_handoff if you're done for now, then end with a short report.` };
+    return { ok: true, message: `${t.id} is in review. Call mc_handoff if you're done for now, then end with a short report.` };
   }
 
   function review(as, id, f = {}) {
     actor(as);
     const t = ticket(id);
-    if (t.status !== 'in_review') throw new SfError(`${t.id} isn't in review.`);
-    if (t.assignee === as) throw new SfError(`You can't review your own ticket (${t.id}).`);
-    if (!['approve', 'changes'].includes(f.verdict)) throw new SfError('verdict must be "approve" or "changes".');
+    if (t.status !== 'in_review') throw new McError(`${t.id} isn't in review.`);
+    if (t.assignee === as) throw new McError(`You can't review your own ticket (${t.id}).`);
+    if (!['approve', 'changes'].includes(f.verdict)) throw new McError('verdict must be "approve" or "changes".');
     store.append('ticket.review', as, { id: t.id, verdict: f.verdict, notes: f.notes ?? '' });
     if (f.verdict === 'changes') store.append('ticket.status', as, { id: t.id, status: 'in_progress', reason: 'changes requested' });
     return { ok: true };
@@ -484,7 +484,7 @@ export function createCore({ store, config, paths }) {
     leadOnly(as, 'merge tickets', { allowCli: true });
     const t = ticket(id);
     const why = canMerge(t);
-    if (why) throw new SfError(why);
+    if (why) throw new McError(why);
     if (f.commits?.length) store.append('ticket.commit', as, { id: t.id, commits: f.commits });
     store.append('ticket.status', as, { id: t.id, status: 'done', reason: f.sha ? `merged ${f.sha}` : 'merged' });
     return { ok: true, nowReady: Object.values(s().tickets).filter(isReady).map((x) => x.id) };
@@ -502,15 +502,15 @@ export function createCore({ store, config, paths }) {
     actor(as);
     const t = ticket(id);
     const src = path.resolve(paths.root, String(f.path ?? ''));
-    if (!IMAGE.test(src)) throw new SfError('Only png, jpg, webp or gif screenshots can be attached.');
-    if (!fs.existsSync(src)) throw new SfError(`File not found: ${src}`);
-    if (fs.statSync(src).size > 8 * 1024 * 1024) throw new SfError('Screenshot is over 8 MB.');
+    if (!IMAGE.test(src)) throw new McError('Only png, jpg, webp or gif screenshots can be attached.');
+    if (!fs.existsSync(src)) throw new McError(`File not found: ${src}`);
+    if (fs.statSync(src).size > 8 * 1024 * 1024) throw new McError('Screenshot is over 8 MB.');
     ensureDir(paths.shots);
     const n = t.attachments.length + 1;
     const name = `${t.id.toLowerCase()}-${n}${path.extname(src).toLowerCase()}`;
     fs.copyFileSync(src, path.join(paths.shots, name));
-    store.append('ticket.attach', as, { id: t.id, kind: 'screenshot', path: `.storyfront/shots/${name}`, caption: f.caption ?? '' });
-    return { ok: true, path: `.storyfront/shots/${name}` };
+    store.append('ticket.attach', as, { id: t.id, kind: 'screenshot', path: `.madcompany/shots/${name}`, caption: f.caption ?? '' });
+    return { ok: true, path: `.madcompany/shots/${name}` };
   }
 
   function handoff(as, f = {}) {
@@ -522,7 +522,7 @@ export function createCore({ store, config, paths }) {
   // ---------- chat & questions ----------
   function post(as, f = {}) {
     actor(as, { allowHuman: true });
-    if (!f.text?.trim()) throw new SfError('Empty message.');
+    if (!f.text?.trim()) throw new McError('Empty message.');
     const channel = channelFor(as, f.channel);
     const id = nextId('msg', 'M');
     store.append('msg.post', as, { id, channel, text: String(f.text), mentions: parseMentions(f.text) });
@@ -539,9 +539,9 @@ export function createCore({ store, config, paths }) {
   function ask(as, f = {}) {
     actor(as);
     const to = f.to === 'lead' ? lead : f.to;
-    if (!isMember(to)) throw new SfError(`Unknown recipient "${f.to}". Ask a team member or "lead"; only the lead escalates to the human.`);
-    if (to === as) throw new SfError("You can't ask yourself.");
-    if (!f.question) throw new SfError('Empty question.');
+    if (!isMember(to)) throw new McError(`Unknown recipient "${f.to}". Ask a team member or "lead"; only the lead escalates to the human.`);
+    if (to === as) throw new McError("You can't ask yourself.");
+    if (!f.question) throw new McError('Empty question.');
     const id = nextId('q', 'Q');
     store.append('question.ask', as, { id, to, question: String(f.question), ticket: f.ticket ? ticket(f.ticket).id : null, options: f.options ?? [], links: f.links ?? [] });
     post(as, { channel: `dm:${to}`, text: `${id} @${to}: ${f.question}` });
@@ -553,16 +553,16 @@ export function createCore({ store, config, paths }) {
     if (bounces >= 3 && to !== lead) {
       store.append('question.escalate', 'cli', { id, to: lead, reason: `ping-pong between ${as} and ${to}` });
     }
-    return { ok: true, id, note: 'Don\'t wait for the answer. If you can\'t continue, park the ticket with sf_block (blockedBy: ["' + id + '"]).' };
+    return { ok: true, id, note: 'Don\'t wait for the answer. If you can\'t continue, park the ticket with mc_block (blockedBy: ["' + id + '"]).' };
   }
 
   function answer(as, qid, text) {
     actor(as, { allowHuman: true });
     const q = s().questions[String(qid).toUpperCase()];
-    if (!q) throw new SfError(`No question ${qid}.`);
-    if (q.status !== 'open') throw new SfError(`${q.id} is already answered.`);
-    if (as !== q.to && as !== lead && as !== HUMAN) throw new SfError(`${q.id} is for ${q.to}.`);
-    if (!text) throw new SfError('Empty answer.');
+    if (!q) throw new McError(`No question ${qid}.`);
+    if (q.status !== 'open') throw new McError(`${q.id} is already answered.`);
+    if (as !== q.to && as !== lead && as !== HUMAN) throw new McError(`${q.id} is for ${q.to}.`);
+    if (!text) throw new McError('Empty answer.');
     store.append('question.answer', as, { id: q.id, answer: String(text) });
     if (as === HUMAN) {
       const fid = nextId('fact', 'F');
@@ -576,16 +576,16 @@ export function createCore({ store, config, paths }) {
   function escalate(as, f = {}) {
     leadOnly(as, 'escalate to the human');
     const options = (f.options ?? []).map(String);
-    if (options.length < 2) throw new SfError('Escalations to the human are multiple-choice: give at least 2 options.');
+    if (options.length < 2) throw new McError('Escalations to the human are multiple-choice: give at least 2 options.');
     const recommended = f.recommended ?? options[0];
-    if (!options.includes(recommended)) throw new SfError('"recommended" must be one of the options.');
+    if (!options.includes(recommended)) throw new McError('"recommended" must be one of the options.');
     if (f.q) {
       const q = s().questions[String(f.q).toUpperCase()];
-      if (!q) throw new SfError(`No question ${f.q}.`);
+      if (!q) throw new McError(`No question ${f.q}.`);
       store.append('question.escalate', as, { id: q.id, to: HUMAN, options, recommended, links: f.links ?? q.links, question: f.question ?? q.question });
       return { ok: true, id: q.id };
     }
-    if (!f.question) throw new SfError('Empty question.');
+    if (!f.question) throw new McError('Empty question.');
     const id = nextId('q', 'Q');
     store.append('question.ask', as, { id, to: HUMAN, question: String(f.question), options, recommended, links: f.links ?? [], ticket: f.ticket ? ticket(f.ticket).id : null });
     return { ok: true, id };
@@ -593,7 +593,7 @@ export function createCore({ store, config, paths }) {
 
   function decide(as, f = {}) {
     actor(as);
-    if (!f.title || !f.decision || !f.why) throw new SfError('A decision needs a title, the decision and why.');
+    if (!f.title || !f.decision || !f.why) throw new McError('A decision needs a title, the decision and why.');
     const id = nextId('dec', 'DEC');
     store.append('decision.log', as, { id, title: f.title, decision: f.decision, why: f.why, alternatives: f.alternatives ?? '', links: f.links ?? [], ticket: f.ticket ?? null });
     return { ok: true, id };
@@ -612,17 +612,17 @@ export function createCore({ store, config, paths }) {
   // ---------- design packs ----------
   function designPath(p) {
     const rel = path.posix.normalize(String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, ''));
-    if (!rel.startsWith('docs/design/') || rel.includes('..')) throw new SfError('Design docs live under docs/design/<area>/.');
+    if (!rel.startsWith('docs/design/') || rel.includes('..')) throw new McError('Design docs live under docs/design/<area>/.');
     return rel;
   }
   function designWrite(as, f = {}) {
     actor(as);
     const rel = designPath(f.path);
     const doc = s().designs[rel];
-    if (doc && doc.owner !== as && as !== lead) throw new SfError(`${rel} is owned by ${doc.owner}. Ask them (sf_ask) instead of editing it.`);
-    if (doc?.status === 'frozen' && as !== lead) throw new SfError(`${rel} is frozen. Ask the lead to unfreeze it.`);
+    if (doc && doc.owner !== as && as !== lead) throw new McError(`${rel} is owned by ${doc.owner}. Ask them (mc_ask) instead of editing it.`);
+    if (doc?.status === 'frozen' && as !== lead) throw new McError(`${rel} is frozen. Ask the lead to unfreeze it.`);
     const consumers = (f.consumers ?? doc?.consumers ?? []).filter((c) => c !== as);
-    for (const c of consumers) if (!isMember(c)) throw new SfError(`Unknown consumer "${c}".`);
+    for (const c of consumers) if (!isMember(c)) throw new McError(`Unknown consumer "${c}".`);
     const full = path.join(paths.root, rel);
     ensureDir(path.dirname(full));
     fs.writeFileSync(full, String(f.content ?? ''));
@@ -637,15 +637,15 @@ export function createCore({ store, config, paths }) {
     actor(as);
     const rel = designPath(p);
     const doc = s().designs[rel];
-    if (!doc) throw new SfError(`No design doc ${rel}.`);
-    if (!doc.consumers.includes(as)) throw new SfError(`You're not listed as a consumer of ${rel}.`);
+    if (!doc) throw new McError(`No design doc ${rel}.`);
+    if (!doc.consumers.includes(as)) throw new McError(`You're not listed as a consumer of ${rel}.`);
     store.append('design.approve', as, { path: rel });
     return { ok: true, design: s().designs[rel] };
   }
   function designFreeze(as, p, frozen = true) {
     leadOnly(as, 'freeze design docs');
     const rel = designPath(p);
-    if (!s().designs[rel]) throw new SfError(`No design doc ${rel}.`);
+    if (!s().designs[rel]) throw new McError(`No design doc ${rel}.`);
     store.append('design.status', as, { path: rel, status: frozen ? 'frozen' : 'draft' });
     return { ok: true };
   }
@@ -661,10 +661,10 @@ export function createCore({ store, config, paths }) {
   }
   function memoryWrite(as, which, content) {
     actor(as);
-    if (!['work', 'comms'].includes(which)) throw new SfError('which must be "work" or "comms".');
+    if (!['work', 'comms'].includes(which)) throw new McError('which must be "work" or "comms".');
     const text = String(content ?? '');
     if (text.length > config.limits.memory_chars) {
-      throw new SfError(`That's ${text.length} characters; the limit is ${config.limits.memory_chars}. Summarise older detail, move it to sf_memory_archive, then write again.`);
+      throw new McError(`That's ${text.length} characters; the limit is ${config.limits.memory_chars}. Summarise older detail, move it to mc_memory_archive, then write again.`);
     }
     ensureDir(path.join(paths.agents, as));
     fs.writeFileSync(memoryFile(as, which), text);
@@ -683,22 +683,22 @@ export function createCore({ store, config, paths }) {
     const m = member(config, actor(as));
     if (!s().envs[as]) {
       const base = config.ports.base + (m.index + 1) * 10;
-      store.append('env.allocate', 'cli', { agent: as, ports: { web: base, api: base + 1, expo: base + 2 }, db: `sf_${as.replace(/-/g, '_')}` });
+      store.append('env.allocate', 'cli', { agent: as, ports: { web: base, api: base + 1, expo: base + 2 }, db: `mc_${as.replace(/-/g, '_')}` });
     }
     const e = s().envs[as];
     return { ...e, databaseUrl: dbUrl(e.db) };
   }
   function integrationEnv() {
     const base = config.ports.base;
-    return { ports: { web: base, api: base + 1, expo: base + 2 }, db: 'sf_integration', databaseUrl: dbUrl('sf_integration') };
+    return { ports: { web: base, api: base + 1, expo: base + 2 }, db: 'mc_integration', databaseUrl: dbUrl('mc_integration') };
   }
   function dbUrl(db) {
-    return String(config.database_url ?? 'postgres://storyfront:storyfront@localhost:5433/{db}').replace('{db}', db);
+    return String(config.database_url ?? 'postgres://madcompany:madcompany@localhost:5433/{db}').replace('{db}', db);
   }
 
   // ---------- feedback & change requests ----------
   function feedback(f = {}) {
-    if (!f.text?.trim()) throw new SfError('Empty comment.');
+    if (!f.text?.trim()) throw new McError('Empty comment.');
     const where = [f.route && `Screen: ${f.route}`, f.selector && `Element: \`${f.selector}\``, f.snippet && `Element text: "${String(f.snippet).slice(0, 120)}"`, f.viewport && `Screen size: ${f.viewport}`, f.url && `URL: ${f.url}`]
       .filter(Boolean)
       .join('\n');
@@ -707,7 +707,7 @@ export function createCore({ store, config, paths }) {
     return res;
   }
   function change(f = {}) {
-    if (!f.text?.trim()) throw new SfError('Empty change request.');
+    if (!f.text?.trim()) throw new McError('Empty change request.');
     const res = createTicket(HUMAN, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change' });
     post(HUMAN, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — please post an impact check.` });
     return res;

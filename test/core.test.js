@@ -39,8 +39,8 @@ test('a ticket cannot start before its dependencies are done', () => {
   core.createTicket('lead', { title: 'Screen', deps: ['APP-1'] });
   assert.throws(() => core.claim('lena', 'APP-2'), /depends on APP-1/);
   const pkg = core.claim('arjun', 'APP-1');
-  assert.equal(pkg.git.branch, 'sf/app-1');
-  assert.equal(pkg.env.db, 'sf_arjun');
+  assert.equal(pkg.git.branch, 'mc/app-1');
+  assert.equal(pkg.env.db, 'mc_arjun');
   assert.equal(pkg.env.ports.web, 4100 + 2 * 10);
 });
 
@@ -189,7 +189,7 @@ test('dashboard summarises team, epics and blocked work', () => {
   assert.equal(dash.team.find((m) => m.id === 'arjun').ticket, 'APP-1');
 });
 
-test('sf_wait resolves on the next notice', async () => {
+test('mc_wait resolves on the next notice', async () => {
   const { core, notices } = started();
   notices.take();
   const p = notices.wait(2000);

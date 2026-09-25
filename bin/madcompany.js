@@ -2,16 +2,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { findRoot, sfPaths } from '../src/paths.js';
-import { loadConfig, SfError } from '../src/config.js';
+import { findRoot, mcPaths } from '../src/paths.js';
+import { loadConfig, McError } from '../src/config.js';
 
-const HELP = `Storyfront: a UI-first AI dev team that runs inside your Claude Code session.
+const HELP = `madcompany: a UI-first AI dev team that runs inside your Claude Code session.
 
-Usage: npx storyfront <command> [options]
+Usage: npx madcompany <command> [options]
 
 Set up
-  init [--no-skills]      Set up Storyfront in this project (.storyfront/, .mcp.json, hook, skills)
-  staff                   Create the agents in .storyfront/team.yaml (.claude/agents/sf-*.md)
+  init [--no-skills]      Set up madcompany in this project (.madcompany/, .mcp.json, hook, skills)
+  staff                   Create the agents in .madcompany/team.yaml (.claude/agents/mc-*.md)
   import [--epics F]      Anchor BMad planning docs and turn stories into tickets
   demo [dir]              Create a demo project with a day of simulated team activity
 
@@ -26,7 +26,7 @@ Work
   env <agent|integration> Print the ports and database for an agent
   anchor <files…>         Add stable anchors to requirement/epic/story IDs
   refs check|fix [files…] Find (or fix) bare references like FR12 that should be links
-  ids                     Rebuild .storyfront/ids.json
+  ids                     Rebuild .madcompany/ids.json
 
 Docs: https://github.com/lokkrish/BMAD-company/blob/main/docs/USAGE.md`;
 
@@ -36,7 +36,7 @@ async function main() {
   if (cmd === '--version' || cmd === '-v') return console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
 
   const root = findRoot();
-  const paths = sfPaths(root);
+  const paths = mcPaths(root);
   const { values: opts, positionals: args } = parseArgs({
     args: rest,
     allowPositionals: true,
@@ -47,15 +47,15 @@ async function main() {
   switch (cmd) {
     case 'init': {
       const { init } = await import('../src/setup.js');
-      if (!fs.existsSync(path.join(root, '.git'))) console.warn('Note: this folder is not a git repository. Storyfront needs git for branches and worktrees (git init).');
+      if (!fs.existsSync(path.join(root, '.git'))) console.warn('Note: this folder is not a git repository. madcompany needs git for branches and worktrees (git init).');
       init(paths, { skills: !opts['no-skills'], port: Number(opts.port ?? 4317) });
-      console.log(`\nNext:\n  1. Edit .storyfront/team.yaml (or run /sf-staff in Claude Code)\n  2. npx storyfront staff\n  3. npx storyfront hq   (keep it running; open http://127.0.0.1:${opts.port ?? 4317})\n  4. In Claude Code: /sf-plan-epic, then /sf-start`);
+      console.log(`\nNext:\n  1. Edit .madcompany/team.yaml (or run /mc-staff in Claude Code)\n  2. npx madcompany staff\n  3. npx madcompany hq   (keep it running; open http://127.0.0.1:${opts.port ?? 4317})\n  4. In Claude Code: /mc-plan-epic, then /mc-start`);
       return;
     }
     case 'staff': {
       const { staff } = await import('../src/setup.js');
       const cfg = staff(paths);
-      console.log(`Team of ${cfg.team.length}: ${cfg.team.map((m) => m.id).join(', ')}. The lead is your main Claude Code session (/sf-start).`);
+      console.log(`Team of ${cfg.team.length}: ${cfg.team.map((m) => m.id).join(', ')}. The lead is your main Claude Code session (/mc-start).`);
       return;
     }
     case 'hq': {
@@ -70,9 +70,9 @@ async function main() {
           // stale lock
         }
       }
-      const hq = createHq({ paths, port: Number(opts.port ?? process.env.STORYFRONT_PORT ?? 4317) });
+      const hq = createHq({ paths, port: Number(opts.port ?? process.env.MADCOMPANY_PORT ?? 4317) });
       const port = await hq.listen();
-      console.log(`Storyfront HQ: http://127.0.0.1:${port}  (project: ${root})\nPress Ctrl+C to stop.`);
+      console.log(`madcompany HQ: http://127.0.0.1:${port}  (project: ${root})\nPress Ctrl+C to stop.`);
       const bye = async () => {
         await hq.close();
         process.exit(0);
@@ -83,7 +83,7 @@ async function main() {
     }
     case 'demo': {
       const { createDemo } = await import('../src/demo.js');
-      await createDemo(args[0] ?? 'storyfront-demo');
+      await createDemo(args[0] ?? 'madcompany-demo');
       return;
     }
     case 'import': {
@@ -117,7 +117,7 @@ async function main() {
       return;
     }
     case 'merge': {
-      if (!args[0]) throw new SfError('Usage: storyfront merge <TICKET>');
+      if (!args[0]) throw new McError('Usage: madcompany merge <TICKET>');
       const { connect } = await import('../src/client.js');
       const { mergeTicket } = await import('../src/git.js');
       const c = await connect(paths);
@@ -142,7 +142,7 @@ async function main() {
     }
     case 'anchor': {
       const { anchorMarkdown } = await import('../src/refs/anchor.js');
-      if (!args.length) throw new SfError('Usage: storyfront anchor <file.md…>');
+      if (!args.length) throw new McError('Usage: madcompany anchor <file.md…>');
       for (const f of args) {
         const { text, added } = anchorMarkdown(fs.readFileSync(f, 'utf8'));
         if (added.length) fs.writeFileSync(f, text);
@@ -155,7 +155,7 @@ async function main() {
       const { findBareRefs, fixBareRefs } = await import('../src/refs/check.js');
       const [mode = 'check', ...files] = args;
       const reg = buildRegistry(root);
-      const targets = files.length ? files.map((f) => path.relative(root, path.resolve(f)).split(path.sep).join('/')) : listMarkdown(root, DEFAULT_DIRS).filter((f) => !f.startsWith('.storyfront/log/'));
+      const targets = files.length ? files.map((f) => path.relative(root, path.resolve(f)).split(path.sep).join('/')) : listMarkdown(root, DEFAULT_DIRS).filter((f) => !f.startsWith('.madcompany/log/'));
       let total = 0;
       for (const rel of targets) {
         const abs = path.join(root, rel);
@@ -173,7 +173,7 @@ async function main() {
         }
       }
       if (mode !== 'fix' && total) {
-        console.log(`\n${total} bare reference(s). Run "npx storyfront refs fix" to link them.`);
+        console.log(`\n${total} bare reference(s). Run "npx madcompany refs fix" to link them.`);
         process.exitCode = 1;
       } else if (mode === 'fix') console.log(`Linked ${total} reference(s).`);
       else console.log('All references are links.');
@@ -187,11 +187,11 @@ async function main() {
       return;
     }
     default:
-      throw new SfError(`Unknown command "${cmd}". Run "npx storyfront help".`);
+      throw new McError(`Unknown command "${cmd}". Run "npx madcompany help".`);
   }
 }
 
 main().catch((err) => {
-  console.error(err instanceof SfError ? err.message : err.stack ?? err.message);
+  console.error(err instanceof McError ? err.message : err.stack ?? err.message);
   process.exit(1);
 });

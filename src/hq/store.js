@@ -3,7 +3,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 
 /**
- * HQ's state is an append-only event log (.storyfront/log/events.jsonl).
+ * HQ's state is an append-only event log (.madcompany/log/events.jsonl).
  * Everything else — board, chat, decisions, dashboard — is derived from it,
  * which also gives every ticket a full activity history for free.
  */

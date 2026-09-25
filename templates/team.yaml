@@ -1,7 +1,7 @@
-# Storyfront team — who works on this project.
-# Edit this, then run: npx storyfront staff
-# Each member becomes a Claude Code subagent (.claude/agents/sf-<id>.md)
-# with its own identity and memory (.storyfront/agents/<id>/).
+# madcompany team — who works on this project.
+# Edit this, then run: npx madcompany staff
+# Each member becomes a Claude Code subagent (.claude/agents/mc-<id>.md)
+# with its own identity and memory (.madcompany/agents/<id>/).
 
 project:
   name: My app

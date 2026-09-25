@@ -46,13 +46,13 @@ function httpClient(base) {
     remote: true,
     base,
     async call(op, ...args) {
-      const res = await fetch(`${base}/api/cli`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-storyfront-cli': '1' }, body: JSON.stringify({ op, args }) });
+      const res = await fetch(`${base}/api/cli`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-madcompany-cli': '1' }, body: JSON.stringify({ op, args }) });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error ?? res.statusText);
       return out;
     },
     async close() {
-      await fetch(`${base}/api/refresh-ids`, { method: 'POST', headers: { 'x-storyfront-cli': '1' } }).catch(() => {});
+      await fetch(`${base}/api/refresh-ids`, { method: 'POST', headers: { 'x-madcompany-cli': '1' } }).catch(() => {});
     },
   };
 }

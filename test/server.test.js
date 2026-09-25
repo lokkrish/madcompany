@@ -39,26 +39,26 @@ test('MCP: agents can list tools and run a ticket through the flow', async () =>
   const client = await mcpClient();
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const n of ['sf_claim', 'sf_block', 'sf_submit', 'sf_wait', 'sf_escalate', 'sf_lookup', 'sf_ticket']) assert.ok(names.includes(n), n);
+  for (const n of ['mc_claim', 'mc_block', 'mc_submit', 'mc_wait', 'mc_escalate', 'mc_lookup', 'mc_ticket']) assert.ok(names.includes(n), n);
 
-  assert.ok((await call(client, 'sf_start_day', { as: 'lead' })).data.workday.state === 'on');
-  const t = await call(client, 'sf_create_ticket', { as: 'lead', title: 'Signup API', epic: 'E1', refs: ['FR1'] });
+  assert.ok((await call(client, 'mc_start_day', { as: 'lead' })).data.workday.state === 'on');
+  const t = await call(client, 'mc_create_ticket', { as: 'lead', title: 'Signup API', epic: 'E1', refs: ['FR1'] });
   assert.equal(t.data.ticket.id, 'APP-1');
-  const denied = await call(client, 'sf_create_ticket', { as: 'arjun', title: 'x' });
+  const denied = await call(client, 'mc_create_ticket', { as: 'arjun', title: 'x' });
   assert.match(denied.error, /Only the lead/);
-  const claim = await call(client, 'sf_claim', { as: 'arjun', id: 'APP-1' });
+  const claim = await call(client, 'mc_claim', { as: 'arjun', id: 'APP-1' });
   assert.equal(claim.data.git.base, 'epic/1');
-  const info = await call(client, 'sf_ticket', { as: 'qa', id: 'APP-1' });
-  assert.equal(info.data.git.review, 'git switch --detach sf/app-1 && git diff epic/1...sf/app-1');
-  const look = await call(client, 'sf_lookup', { as: 'arjun', ref: 'FR-1' });
+  const info = await call(client, 'mc_ticket', { as: 'qa', id: 'APP-1' });
+  assert.equal(info.data.git.review, 'git switch --detach mc/app-1 && git diff epic/1...mc/app-1');
+  const look = await call(client, 'mc_lookup', { as: 'arjun', ref: 'FR-1' });
   assert.equal(look.data.link, '[FR-1](docs/prd.md#fr1)');
   await client.close();
 });
 
-test('MCP: sf_wait returns notices when the human posts', async () => {
+test('MCP: mc_wait returns notices when the human posts', async () => {
   const client = await mcpClient();
-  await call(client, 'sf_wait', { as: 'lead', seconds: 5 }); // drain
-  const waiting = call(client, 'sf_wait', { as: 'lead', seconds: 10 });
+  await call(client, 'mc_wait', { as: 'lead', seconds: 5 }); // drain
+  const waiting = call(client, 'mc_wait', { as: 'lead', seconds: 10 });
   await new Promise((r) => setTimeout(r, 100));
   const post = await fetch(`${base}/api/messages`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify({ channel: 'general', text: 'Please prioritise signup @lead' }) });
   assert.equal(post.status, 200);
@@ -113,6 +113,6 @@ test('state, views and registry are written for humans and git', async () => {
   assert.match(board, /## <a id="app-1"><\/a>APP-1: Signup API/);
   const ids = JSON.parse(fs.readFileSync(ctx.paths.ids, 'utf8'));
   assert.equal(ids.fr1.file, 'docs/prd.md');
-  assert.equal(ids['app-1'].file, '.storyfront/log/board.md');
+  assert.equal(ids['app-1'].file, '.madcompany/log/board.md');
   assert.ok(fs.existsSync(path.join(ctx.paths.chat, 'general.md')));
 });

@@ -1,5 +1,5 @@
 {
-  "name": "storyfront",
+  "name": "madcompany",
   "owner": {
     "name": "lokkrish"
   },
@@ -8,19 +8,19 @@
   "repository": "https://github.com/lokkrish/BMAD-company",
   "plugins": [
     {
-      "name": "storyfront",
+      "name": "madcompany",
       "source": "./",
       "description": "A UI-first AI dev team that runs inside your Claude Code session, with a local HQ app. Compatible with BMad Method v6.",
       "version": "0.1.0",
       "strict": false,
       "skills": [
-        "./skills/sf-setup",
-        "./skills/sf-staff",
-        "./skills/sf-plan-epic",
-        "./skills/sf-ui-sprint",
-        "./skills/sf-start",
-        "./skills/sf-end-day",
-        "./skills/sf-stop"
+        "./skills/mc-setup",
+        "./skills/mc-staff",
+        "./skills/mc-plan-epic",
+        "./skills/mc-ui-sprint",
+        "./skills/mc-start",
+        "./skills/mc-end-day",
+        "./skills/mc-stop"
       ]
     }
   ]

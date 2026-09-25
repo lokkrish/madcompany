@@ -1,14 +1,14 @@
-// Storyfront feedback widget. The app loads this in development only:
+// madcompany feedback widget. The app loads this in development only:
 //   <script src="http://127.0.0.1:4317/widget.js" defer></script>
 // Click "Comment", click any element, type what should change. It becomes a ticket in HQ.
 (() => {
-  if (window.__storyfrontWidget) return;
-  window.__storyfrontWidget = true;
+  if (window.__madcompanyWidget) return;
+  window.__madcompanyWidget = true;
   const hq = new URL(document.currentScript?.src ?? 'http://127.0.0.1:4317/widget.js').origin;
 
   const btn = document.createElement('button');
   btn.textContent = 'Comment';
-  btn.setAttribute('aria-label', 'Leave feedback on this screen for the Storyfront team');
+  btn.setAttribute('aria-label', 'Leave feedback on this screen for the madcompany team');
   Object.assign(btn.style, {
     position: 'fixed', right: '16px', bottom: '16px', zIndex: 2147483647, padding: '10px 14px',
     borderRadius: '999px', border: '0', background: '#1f6feb', color: '#fff', font: '600 14px system-ui, sans-serif',
@@ -54,7 +54,7 @@
       const out = await res.json();
       toast(res.ok ? `Sent as ${out.ticket.id}` : `Not sent: ${out.error}`);
     } catch {
-      toast('Not sent: is Storyfront HQ running?');
+      toast('Not sent: is madcompany HQ running?');
     }
   };
 

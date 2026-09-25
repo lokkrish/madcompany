@@ -1,8 +1,8 @@
-code: sf
-name: 'Storyfront'
+code: mc
+name: 'madcompany'
 description: 'A UI-first AI dev team for the implementation phase: parallel agents with roles and memory, a local HQ app (chat, board, decisions, dashboard), clickable references. Compatible with BMad Method v6.'
 module_version: 0.1.0
 default_selected: false
 module_greeting: >
-  Storyfront is installed. Run /sf-setup once, start HQ with "npx storyfront hq",
-  then /sf-staff, /sf-plan-epic and /sf-start.
+  madcompany is installed. Run /mc-setup once, start HQ with "npx madcompany hq",
+  then /mc-staff, /mc-plan-epic and /mc-start.

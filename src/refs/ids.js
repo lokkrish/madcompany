@@ -50,7 +50,7 @@ export function listMarkdown(root, dirs) {
   return [...new Set(out)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
-export const DEFAULT_DIRS = ['docs', '_bmad-output', '.storyfront/log', '.storyfront/facts.md', 'README.md'];
+export const DEFAULT_DIRS = ['docs', '_bmad-output', '.madcompany/log', '.madcompany/facts.md', 'README.md'];
 
 export function cleanTitle(line) {
   return line

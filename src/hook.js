@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Storyfront PreToolUse hook for Claude Code. Copied into each project as
-// .storyfront/bin/hook.mjs and must not import anything outside Node itself.
-//  - Stop now: blocks every tool call except Storyfront's own while STOP is set.
+// madcompany PreToolUse hook for Claude Code. Copied into each project as
+// .madcompany/bin/hook.mjs and must not import anything outside Node itself.
+//  - Stop now: blocks every tool call except madcompany's own while STOP is set.
 //  - Deny list: actions that always need the human (push, deploy, secrets…).
 // Exit 2 blocks the tool call and shows the reason to the agent.
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const ASK = 'This needs the human. Park the ticket (sf_block) and ask the lead with sf_ask.';
+const ASK = 'This needs the human. Park the ticket (mc_block) and ask the lead with mc_ask.';
 
 const RULES = [
   [/\bgit\s+push\b[^\n;&|]*(\s(-f|--force|--force-with-lease|--mirror|--delete)\b|\s\+\S)/, 'Force-pushing or deleting remote branches rewrites shared history.'],
@@ -72,22 +72,22 @@ export function findRoot(cwd) {
 
 export function decide(input, { root }) {
   const tool = input.tool_name ?? '';
-  if (tool.startsWith('mcp__storyfront__')) return null;
-  if (fs.existsSync(path.join(root, '.storyfront', 'run', 'STOP'))) {
-    return 'Storyfront: the human pressed Stop now. Do not continue. End your turn now without further tool calls.';
+  if (tool.startsWith('mcp__madcompany__')) return null;
+  if (fs.existsSync(path.join(root, '.madcompany', 'run', 'STOP'))) {
+    return 'madcompany: the human pressed Stop now. Do not continue. End your turn now without further tool calls.';
   }
   let policy = {};
   try {
-    policy = JSON.parse(fs.readFileSync(path.join(root, '.storyfront', 'run', 'policy.json'), 'utf8'));
+    policy = JSON.parse(fs.readFileSync(path.join(root, '.madcompany', 'run', 'policy.json'), 'utf8'));
   } catch {
     // HQ not started yet: defaults apply
   }
   if (tool === 'Bash') {
     const why = checkCommand(input.tool_input?.command ?? '', { root, allowPush: policy.allowPush });
-    if (why) return `Storyfront policy: ${why} ${ASK}`;
+    if (why) return `madcompany policy: ${why} ${ASK}`;
   }
   if (['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool) && isSecretFile(input.tool_input?.file_path ?? input.tool_input?.notebook_path ?? '')) {
-    return `Storyfront policy: secrets in .env files are never read or written by agents. Use .env.example and mock adapters. ${ASK}`;
+    return `madcompany policy: secrets in .env files are never read or written by agents. Use .env.example and mock adapters. ${ASK}`;
   }
   return null;
 }

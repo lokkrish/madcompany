@@ -1,0 +1,16 @@
+# Local services for madcompany agents: one Postgres, one database per agent.
+# Start: docker compose -f docker-compose.madcompany.yml up -d
+# Each agent creates its own database (mc_<id>) from the connection below.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: madcompany
+      POSTGRES_PASSWORD: madcompany
+      POSTGRES_DB: mc_integration
+    ports:
+      - "5433:5432"
+    volumes:
+      - madcompany-pg:/var/lib/postgresql/data
+volumes:
+  madcompany-pg:

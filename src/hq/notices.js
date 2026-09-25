@@ -1,6 +1,6 @@
 /**
  * Turns raw events into the short notices the lead acts on: who to wake,
- * what's ready, what needs review. The lead collects them with sf_wait,
+ * what's ready, what needs review. The lead collects them with mc_wait,
  * which blocks without using any Claude usage until something happens.
  */
 export function createNotices(core) {
@@ -9,7 +9,7 @@ export function createNotices(core) {
   const list = [];
   const waiters = new Set();
   let n = 0;
-  // In memory only: after an HQ restart the lead gets a fresh briefing from sf_start_day / sf_status.
+  // In memory only: after an HQ restart the lead gets a fresh briefing from mc_start_day / mc_status.
   let cursor = 0;
 
   function push(kind, text, extra = {}) {
@@ -67,14 +67,14 @@ export function createNotices(core) {
         }
         break;
       case 'ticket.review':
-        if (d.verdict === 'approve') push('merge', `${d.id} approved by ${ev.by}. Merge it: npx storyfront merge ${d.id}`, { ticket: d.id });
+        if (d.verdict === 'approve') push('merge', `${d.id} approved by ${ev.by}. Merge it: npx madcompany merge ${d.id}`, { ticket: d.id });
         else push('changes', `${d.id}: changes requested by ${ev.by}. Restart ${t?.assignee} on it.`, { ticket: d.id, agent: t?.assignee });
         break;
       case 'handoff':
         push('handoff', `${ev.by} handed off: next — ${d.next || 'n/a'}`, { agent: ev.by });
         break;
       case 'workday.ending':
-        push('workday', 'End day requested. Start no new work; wait for handoffs, then call sf_end_day and run: npx storyfront snapshot');
+        push('workday', 'End day requested. Start no new work; wait for handoffs, then call mc_end_day and run: npx madcompany snapshot');
         break;
       case 'workday.stop':
         push('workday', 'Stop now requested. Stop all work immediately and end your turn.');

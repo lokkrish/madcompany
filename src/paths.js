@@ -4,7 +4,7 @@ import path from 'node:path';
 
 /**
  * The project root is the main git worktree, so agents working in linked
- * worktrees still find the one shared .storyfront folder.
+ * worktrees still find the one shared .madcompany folder.
  */
 export function findRoot(start = process.cwd()) {
   try {
@@ -19,15 +19,15 @@ export function findRoot(start = process.cwd()) {
   }
   let dir = path.resolve(start);
   for (;;) {
-    if (fs.existsSync(path.join(dir, '.storyfront'))) return dir;
+    if (fs.existsSync(path.join(dir, '.madcompany'))) return dir;
     const up = path.dirname(dir);
     if (up === dir) return path.resolve(start);
     dir = up;
   }
 }
 
-export function sfPaths(root) {
-  const dir = path.join(root, '.storyfront');
+export function mcPaths(root) {
+  const dir = path.join(root, '.madcompany');
   const log = path.join(dir, 'log');
   const run = path.join(dir, 'run');
   return {

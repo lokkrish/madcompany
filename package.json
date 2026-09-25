@@ -1,10 +1,10 @@
 {
-  "name": "storyfront",
+  "name": "madcompany",
   "version": "0.1.0",
   "description": "A UI-first AI dev team that runs inside your Claude Code session, with a local HQ app for chat, board, decisions and dashboard. Compatible with BMad Method v6.",
   "type": "module",
   "bin": {
-    "storyfront": "bin/storyfront.js"
+    "madcompany": "bin/madcompany.js"
   },
   "files": [
     "bin",
@@ -23,7 +23,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "hq": "node bin/storyfront.js hq"
+    "hq": "node bin/madcompany.js hq"
   },
   "keywords": [
     "claude-code",

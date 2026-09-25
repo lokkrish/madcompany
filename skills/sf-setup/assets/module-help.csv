@@ -1,8 +1,0 @@
-module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
-Storyfront,sf-setup,Set up Storyfront,SS,"Install Storyfront in this project (.storyfront, MCP server, safety hook).",setup,,anytime,,sf-staff,true,,.storyfront
-Storyfront,sf-staff,Staff the team,ST,"Choose roles, domains and models; generate one agent per member.",staff,,implementation,sf-setup,sf-plan-epic,true,,.storyfront/team.yaml
-Storyfront,sf-plan-epic,Plan an epic,PE,"Import BMad stories as tickets, anchor IDs, split into single-domain tickets.",plan,[epic],implementation,sf-staff,sf-ui-sprint,true,,tickets in HQ
-Storyfront,sf-ui-sprint,UI sprint,UI,"Build clickable screens with the human, sign off, derive the API contract.",ui-sprint,[epic],implementation,sf-plan-epic,sf-start,false,,docs/design
-Storyfront,sf-start,Start the workday,SD,"Become the lead and run the agent team until the day ends.",start,,implementation,sf-plan-epic,sf-end-day,true,,
-Storyfront,sf-end-day,End the day,ED,"Agents hand off; logs are committed.",end-day,,implementation,sf-start,,false,,
-Storyfront,sf-stop,Stop now,SN,"Block every agent's next action immediately.",stop,,anytime,,,false,,

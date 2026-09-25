@@ -1,4 +1,4 @@
 node_modules/
-.storyfront/run/
-.storyfront/worktrees/
+.madcompany/run/
+.madcompany/worktrees/
 *.log
