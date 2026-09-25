@@ -32,7 +32,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "hq": "node bin/madcompany.js hq",
-    "site": "node site/build.mjs"
+    "site": "node site/build.mjs",
+    "test:ci": "node --test --test-force-exit --test-timeout=120000 --test-reporter=spec test/*.test.js"
   },
   "keywords": [
     "claude-code",
