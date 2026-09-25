@@ -24,7 +24,8 @@
     "docs/*.md",
     "examples",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"
@@ -33,7 +34,8 @@
     "test": "node --test test/*.test.js",
     "hq": "node bin/madcompany.js hq",
     "site": "node site/build.mjs",
-    "test:ci": "node --test --test-force-exit --test-timeout=120000 --test-reporter=spec test/*.test.js"
+    "test:ci": "node --test --test-force-exit --test-timeout=120000 --test-reporter=spec test/*.test.js",
+    "prepublishOnly": "npm run test:ci"
   },
   "keywords": [
     "claude-code",
@@ -49,5 +51,8 @@
     "marked": "^18.0.14",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
