@@ -88,7 +88,9 @@ export async function createDemo(dir, { log = console.log } = {}) {
     fs
       .readFileSync(paths.team, 'utf8')
       .replace('name: My app', 'name: Tiny Tasks')
-      .replace('key: APP', 'key: TT'),
+      .replace('key: APP', 'key: TT')
+      .replace('  # - Push main; Vercel deploys the web app', '  - Push main; GitHub Actions deploys the API to Azure')
+      .replace('  # - eas build --platform all && eas submit', '  - eas build --platform all && eas submit'),
   );
   staff(paths, { log: () => {} });
   g('add', '-A');
@@ -99,7 +101,13 @@ export async function createDemo(dir, { log = console.log } = {}) {
   await importBmad(paths, c, { log: () => {} });
   const core = c.core; // demo runs with HQ off, straight on the log
   core.startDay('lead');
-  core.createTicket('lead', { title: 'Session API contract (OpenAPI)', epic: 'E1', domain: 'Node API', refs: ['FR1'], body: 'Design pack for sign-up and sessions.' });
+  // UI-MVP: R1 is the MVP screens on mock data, R2 the same screens working for real
+  core.planRelease('lead', { title: 'MVP screens', goal: 'Click through sign-up and the task list on mock data, on your phone', version: 'v0.1.0' });
+  core.planRelease('lead', { title: 'Working MVP', goal: 'Sign up and keep a real task list, saved on the server', version: 'v0.2.0' });
+  core.createTicket('lead', { title: 'Session API contract (OpenAPI)', release: 'R1', epic: 'E1', domain: 'Node API', refs: ['FR1'], body: 'Design pack for sign-up and sessions.' });
+  core.updateTicket('lead', 'TT-1', { release: 'R1' });
+  core.updateTicket('lead', 'TT-2', { release: 'R2' });
+  core.updateTicket('lead', 'TT-3', { release: 'R2' });
   core.updateTicket('lead', 'TT-2', { deps: ['TT-4'], domain: 'Node API' });
   core.updateTicket('lead', 'TT-1', { domain: 'Expo screens' });
   core.updateTicket('lead', 'TT-3', { domain: 'Expo screens', ui: true, deps: [] }); // UI first: build on mock data
@@ -134,6 +142,42 @@ export async function createDemo(dir, { log = console.log } = {}) {
   wireframePng(path.join(shots, 'tasks.png'), { rows: 5, button: false, accent: [130, 80, 223] });
   core.attach('lena', 'TT-3', { path: path.join(shots, 'tasks.png'), caption: 'Task list, empty and filled states' });
   core.block('lena', 'TT-3', { blockedBy: ['TT-2'], done: 'List UI and empty state against mock data', next: 'Replace mock client with real /tasks once sessions land', files: ['app/(tabs)/tasks.tsx'] });
+  core.readyForReview('lead', 'R1');
+  core.requestHelp('arjun', {
+    title: 'Create the Azure Postgres database and add its connection string',
+    kind: 'secret',
+    service: 'Azure',
+    why: 'Sessions and tasks (R2) need the real database; the team uses local Postgres until then.',
+    steps: [
+      'Open https://portal.azure.com → Create a resource → Azure Database for PostgreSQL flexible server',
+      'Pick the Burstable B1ms tier in your nearest region; allow access from your IP',
+      'Copy the connection string (Settings → Connect)',
+      'Add AZURE_POSTGRES_URL=postgres://… to .env',
+    ],
+    env: ['AZURE_POSTGRES_URL'],
+    tickets: ['TT-2'],
+    links: ['https://learn.microsoft.com/azure/postgresql/flexible-server/quickstart-create-server-portal'],
+    neededBy: 'R2',
+  });
+  core.requestHelp('lena', {
+    title: 'Create an Expo account and an access token',
+    kind: 'account',
+    service: 'Expo',
+    why: 'Builds for your phone (EAS) and Expo Go previews under the project account.',
+    steps: ['Sign up at https://expo.dev/signup', 'Account settings → Access tokens → Create token', 'Add EXPO_TOKEN=… to .env'],
+    env: ['EXPO_TOKEN'],
+    neededBy: 'R2',
+  });
+  core.requestHelp('lead', {
+    title: 'Enrol in the Apple Developer Program ($99/year)',
+    kind: 'money',
+    service: 'Apple',
+    why: 'Needed to put Tiny Tasks on TestFlight and the App Store after the MVP.',
+    steps: ['Enrol at https://developer.apple.com/programs/enroll/', 'Tell the lead in #general when it is approved (it can take a day or two)'],
+    neededBy: 'R3',
+  });
+  core.requestHelp('lead', { title: 'Give the team a GitHub repository', kind: 'access', service: 'GitHub', why: 'So releases can be pushed.', steps: ['Create a private repo', 'git remote add origin <url>'] });
+  core.helpDone('you', 'HELP-4', { note: 'github.com/you/tiny-tasks (private)' });
   core.escalate('lead', { question: 'Should unfinished tasks roll over to the next day automatically?', options: ['Yes, roll over', 'No, leave them on their date', 'Ask the user each morning'], recommended: 'Yes, roll over', links: ['FR2'] });
   core.post('lead', { channel: 'general', text: 'Morning: TT-2 (sessions) in progress with @arjun; TT-3 parked until it lands. One question for you in the Inbox.' });
   core.post('qa', { channel: 'ticket:TT-1', text: 'Approved. Error message for taken email matches the contract in docs/design/auth/sessions.md' });

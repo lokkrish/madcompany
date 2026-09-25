@@ -2,6 +2,14 @@
   "name": "madcompany",
   "version": "0.1.0",
   "description": "A UI-first AI dev team that runs inside your Claude Code session, with a local HQ app for chat, board, decisions and dashboard. Compatible with BMad Method v6.",
+  "homepage": "https://lokkrish.github.io/madcompany/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lokkrish/madcompany.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lokkrish/madcompany/issues"
+  },
   "type": "module",
   "bin": {
     "madcompany": "bin/madcompany.js"

@@ -4,8 +4,8 @@
     "name": "lokkrish"
   },
   "license": "MIT",
-  "homepage": "https://github.com/lokkrish/BMAD-company",
-  "repository": "https://github.com/lokkrish/BMAD-company",
+  "homepage": "https://github.com/lokkrish/madcompany",
+  "repository": "https://github.com/lokkrish/madcompany",
   "plugins": [
     {
       "name": "madcompany",
@@ -16,6 +16,8 @@
       "skills": [
         "./skills/mc-setup",
         "./skills/mc-staff",
+        "./skills/mc-scan",
+        "./skills/mc-plan-release",
         "./skills/mc-plan-epic",
         "./skills/mc-ui-sprint",
         "./skills/mc-minutes",

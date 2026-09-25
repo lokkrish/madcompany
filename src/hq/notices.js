@@ -71,6 +71,24 @@ export function createNotices(core) {
         if (d.verdict === 'approve') push('merge', `${d.id} approved by ${ev.by}. Merge it: npx madcompany merge ${d.id}`, { ticket: d.id });
         else push('changes', `${d.id}: changes requested by ${ev.by}. Restart ${t?.assignee} on it.`, { ticket: d.id, agent: t?.assignee });
         break;
+      case 'help.request':
+        push('help', `${d.id} is waiting on the human: ${d.title}. Keep everyone else busy; tickets parked on it resume when it's done.`, { help: d.id });
+        break;
+      case 'help.done': {
+        const h = store.state.help[d.id];
+        push('help', `${nameOf(ev.by)} did ${d.id}: ${h?.title ?? ''}${d.note ? ` (${d.note})` : ''}`, { help: d.id });
+        for (const u of readyAfter(d.id)) push('ready', `${u.id} can resume (${d.id} done). Restart ${u.assignee ?? 'an agent'} on it.`, { ticket: u.id, agent: u.assignee });
+        break;
+      }
+      case 'unit.review': {
+        const unit = store.state.releases[d.id] ? 'release' : 'epic';
+        if (d.verdict === 'approve') {
+          push('release', `${nameOf(ev.by)} approved ${d.id}. Run: npx madcompany ship ${d.id}. Then ${unit === 'release' ? 'plan the next release with the human (/mc-plan-release)' : 'start the next epic'}.`, { unit: d.id });
+        } else {
+          push('release', `${nameOf(ev.by)} asked for changes to ${d.id}: ${d.notes}. A change ticket was added to ${d.id}; post an impact check, split it if needed, and send ${d.id} for review again when it's done.`, { unit: d.id });
+        }
+        break;
+      }
       case 'handoff':
         push('handoff', `${ev.by} handed off: next — ${d.next || 'n/a'}`, { agent: ev.by });
         break;

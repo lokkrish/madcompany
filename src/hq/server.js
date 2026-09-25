@@ -16,6 +16,8 @@ import { setMemberModel, MODEL_CHOICES, hireMember, removeMember, addPerson, rem
 import { ROLES, TEMPLATES, DEPARTMENTS } from '../roles.js';
 import { createAccess, readCookie } from '../auth.js';
 import { createLibrary } from './library.js';
+import { MODES } from '../modes.js';
+import { HELP_KINDS } from './core.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(here, '..', '..', 'ui');
@@ -24,7 +26,7 @@ const RAW = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.html', 
 const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
-const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink']);
+const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel']);
 
 export function createHq({ paths, port = 4317, quiet = false, share = false, bind = null }) {
   const config = loadConfig(paths);
@@ -218,6 +220,11 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/answer') return need(2) && ok(res, () => core.answer(who.id, body.q, body.answer));
       if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text }, who.id));
       if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
+      if (p === '/api/help') return need(2) && ok(res, () => core.requestHelp(who.id, body));
+      if (p === '/api/help/done') return need(2) && ok(res, () => core.helpDone(who.id, body.id, { note: body.note, force: body.force }));
+      if (p === '/api/help/cancel') return need(3) && ok(res, () => core.helpCancel(who.id, body.id, body.reason));
+      // approving a release is the owner's call; anyone who can chat can ask for changes
+      if (p === '/api/review') return need(body.verdict === 'approve' ? 3 : 2) && ok(res, () => core.reviewUnit(who.id, body.id, { verdict: body.verdict, notes: body.notes }));
       if (p === '/api/team/model') {
         return need(3) && ok(res, () => {
           const out = setMemberModel(paths, body.id, body.model);
@@ -287,7 +294,10 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
     return {
       seq: s.seq,
       dashboard: core.dashboard(),
-      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel, models: MODEL_CHOICES, share },
+      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel, models: MODEL_CHOICES, share, mode: core.mode(), modes: MODES, main_branch: config.main_branch, env_files: config.env_files },
+      help: core.helpView(),
+      helpKinds: HELP_KINDS,
+      units: core.units(),
       people: [OWNER(), ...config.people],
       tickets: s.tickets,
       messages: s.messages.slice(-2000),

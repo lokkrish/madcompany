@@ -91,6 +91,61 @@ export async function mergeTicket(paths, client, config, id, { log = console.log
   }
 }
 
+/**
+ * Ship an approved release or epic (SHIP-4): merge its branch into main in
+ * your checkout, re-run the checks if main moved, tag it, and hand the push
+ * and deploy to you as a Human help item. Agents never push.
+ */
+export async function shipUnit(paths, client, config, id, { log = console.log } = {}) {
+  const { root } = paths;
+  const lockFile = path.join(paths.run, 'merge.lock');
+  ensureDir(paths.run);
+  try {
+    fs.writeFileSync(lockFile, String(process.pid), { flag: 'wx' });
+  } catch {
+    throw new Error(`A merge is running (${lockFile}). Try again when it's done.`);
+  }
+  try {
+    const u = await client.call('unit', id);
+    if (u.status !== 'approved') throw new Error(`${u.id} is ${u.status ?? 'building'}. It ships after you approve it in HQ.`);
+    const branch = u.branch;
+    const main = config.main_branch;
+    if (!branchExists(root, branch)) throw new Error(`Branch ${branch} doesn't exist, so there is nothing to ship.`);
+    const current = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
+    if (current !== main) throw new Error(`Your checkout is on ${current}. Run \`git switch ${main}\`, then ship again.`);
+    // HQ's own logs change all the time and never block a ship
+    const dirty = git(root, ['status', '--porcelain', '--', '.', ':(exclude).madcompany', ':(exclude)docs/design']).out;
+    if (dirty) throw new Error(`You have uncommitted changes on ${main}. Commit or stash them first:\n${dirty}`);
+    if (Number(git(root, ['rev-list', '--count', `${main}..${branch}`]).out) === 0) throw new Error(`${branch} has nothing that isn't already on ${main}.`);
+    const mainMoved = !git(root, ['merge-base', '--is-ancestor', main, branch], { allowFail: true }).ok;
+    const merged = git(root, ['merge', '--no-ff', '--no-edit', '-m', `Ship ${u.id}: ${u.title}`, branch], { allowFail: true });
+    if (!merged.ok) {
+      git(root, ['merge', '--abort'], { allowFail: true });
+      throw new Error(`${branch} conflicts with ${main}. Ask the lead to merge ${main} into ${branch} and re-run the checks there, then ship again.`);
+    }
+    if (mainMoved && config.checks.length) {
+      // main changed since the release branch was cut, so this exact tree hasn't been checked yet
+      const r = runChecks(config.checks, root, {});
+      if (!r.ok) {
+        git(root, ['revert', '-m', '1', '--no-edit', 'HEAD']);
+        throw new Error(`Checks failed on ${main} after merging ${branch} (\`${r.cmd}\`), so the merge was reverted.\n\n${r.tail}`);
+      }
+    }
+    const sha = git(root, ['rev-parse', '--short', 'HEAD']).out;
+    let tag = u.version || (/^R\d+$/i.test(u.id) ? u.id.toLowerCase() : `epic-${u.id.replace(/\D/g, '')}`);
+    if (git(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { allowFail: true }).ok) {
+      log(`Tag ${tag} already exists; not tagging.`);
+      tag = null;
+    } else git(root, ['tag', '-a', tag, '-m', `${u.id}: ${u.title}`]);
+    const res = await client.call('shipped', 'cli', u.id, { sha, tag });
+    log(`✓ ${u.id} merged into ${main} (${sha})${tag ? `, tagged ${tag}` : ''}.`);
+    log(`  Pushing and deploying are yours: see ${res.help} in HQ → Human help.`);
+    return { ok: true, sha, tag, help: res.help };
+  } finally {
+    fs.rmSync(lockFile, { force: true });
+  }
+}
+
 /** Commit HQ's logs, facts and design docs on the main checkout (HQ-8). Touches nothing else. */
 export function snapshot(paths, { log = console.log } = {}) {
   const { root } = paths;

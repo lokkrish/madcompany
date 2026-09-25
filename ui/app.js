@@ -77,6 +77,11 @@ function linkify(text) {
 }
 
 const idLink = (id) => (id ? `<a href="#/ticket/${esc(id)}">${esc(id)}</a>` : '');
+const byRelease = () => S.config.mode.unit === 'release';
+const blockerLink = (x) => (S.tickets[x] ? idLink(x) : /^HELP-/.test(x) ? `<a href="#/help/${esc(x)}">${esc(x)}</a>` : `<a href="#/questions/${esc(x)}">${esc(x)}</a>`);
+const unitWord = (plural) => (byRelease() ? (plural ? 'Releases' : 'release') : plural ? 'Epics' : 'epic');
+const UNIT_LABEL = { planned: 'Planned', building: 'Building', review: 'Waiting for your review', approved: 'Approved', shipped: 'Shipped' };
+const unitPill = (st) => pill({ planned: 'todo', building: 'in_progress', review: 'in_review', approved: 'done', shipped: 'done' }[st] ?? 'todo', UNIT_LABEL[st] ?? st);
 const pill = (cls, label) => `<span class="pill ${esc(cls)}">${esc(label ?? cls)}</span>`;
 
 async function api(path, body) {
@@ -91,10 +96,17 @@ async function refresh() {
   [S, IDS] = await Promise.all([api('/api/state'), api('/api/ids')]);
   document.getElementById('project-name').textContent = S.config.project.name;
   const n = S.dashboard.needsYou.length;
-  const badge = document.getElementById('inbox-badge');
-  badge.hidden = n === 0;
-  badge.textContent = n;
-  document.title = `${n ? `(${n}) ` : ''}${S.config.project.name} · madcompany HQ`;
+  const setBadge = (id, count) => {
+    const b = document.getElementById(id);
+    b.hidden = count === 0;
+    b.textContent = count;
+  };
+  setBadge('inbox-badge', n);
+  setBadge('help-badge', S.dashboard.help.open);
+  setBadge('review-badge', S.dashboard.inReview.length);
+  document.getElementById('units-label').textContent = unitWord(true);
+  const all = n + S.dashboard.help.open + S.dashboard.inReview.length;
+  document.title = `${all ? `(${all}) ` : ''}${S.config.project.name} · madcompany HQ`;
   render();
 }
 
@@ -127,10 +139,10 @@ let lastView = '';
 function render() {
   if (!S) return;
   const r = route();
-  const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name;
+  const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name === 'epics' ? 'releases' : r.name;
   const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : viewName; // sidebar highlight
   document.querySelectorAll('.side a').forEach((a) => a.classList.toggle('on', a.dataset.nav === name));
-  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView };
+  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage };
   const view = views[viewName] ?? dashboard;
   const key = location.hash;
   const keepScroll = key === lastView;
@@ -166,14 +178,22 @@ function focusTarget(r) {
 function dashboard() {
   const d = S.dashboard;
   const wd = d.workday.state;
-  const epics = d.epics.length
-    ? d.epics
-        .map((e) => {
-          const pct = e.total ? Math.round((100 * e.done) / e.total) : 0;
-          return `<div class="stack"><div class="row"><b>${esc(e.title)}</b><span class="grow"></span><span class="sub">${e.done}/${e.total} tickets</span></div><div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div></div>`;
-        })
+  const bar = (done, total) => {
+    const pct = total ? Math.round((100 * done) / total) : 0;
+    return `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>`;
+  };
+  const list = d.units.length ? d.units : d.epics.map((e) => ({ ...e, status: null }));
+  const epics = list.length
+    ? list
+        .map((e) => `<a class="stack" href="#/releases/${esc(e.id)}" style="color:inherit;text-decoration:none"><div class="row"><b>${esc(e.id === e.title ? e.title : `${e.id} ${e.title}`)}</b>${e.status ? unitPill(e.status) : ''}<span class="grow"></span><span class="sub">${e.done}/${e.total}</span></div>${bar(e.done, e.total)}</a>`)
         .join('')
-    : '<p class="empty">No tickets yet. The lead creates them from your epics.</p>';
+    : `<p class="empty">No ${unitWord(true).toLowerCase()} yet. In Claude Code: <code>${byRelease() ? '/mc-plan-release' : '/mc-plan-epic'}</code></p>`;
+  const waiting = d.needsYou.length + d.help.open + d.inReview.length;
+  const needsLines = [
+    d.inReview.length && `<a href="#/releases/${esc(d.inReview[0].id)}">${d.inReview.map((u) => esc(u.id)).join(', ')} ready for your review</a>`,
+    d.needsYou.length && `<a href="#/inbox">${d.needsYou.length} question${d.needsYou.length > 1 ? 's' : ''}</a>: ${esc(d.needsYou[0].question)}`,
+    d.help.open && `<a href="#/help">${d.help.open} in Human help</a>${d.help.blocking ? `, ${d.help.blocking} blocking work` : ''}`,
+  ].filter(Boolean);
   const team = d.team
     .map(
       (m) => `<tr>
@@ -185,7 +205,7 @@ function dashboard() {
     )
     .join('');
   const blocked = d.blocked.length
-    ? d.blocked.map((b) => `<div>${idLink(b.id)} ← ${b.blockedBy.map((x) => (S.tickets[x] ? idLink(x) : `<a href="#/questions/${esc(x)}">${esc(x)}</a>`)).join(', ')} <span class="sub">${esc(b.assignee ?? '')}</span></div>`).join('')
+    ? d.blocked.map((b) => `<div>${idLink(b.id)} ← ${b.blockedBy.map(blockerLink).join(', ')} <span class="sub">${esc(b.assignee ?? '')}</span></div>`).join('')
     : '<p class="empty">Nothing blocked.</p>';
   const shots = d.shots.length
     ? `<div class="shots">${d.shots.map((s) => `<a href="#/ticket/${esc(s.ticket)}" title="${esc(s.ticket)} ${esc(s.caption)}"><img src="/shots/${esc(s.path.split('/').pop())}" alt="${esc(s.caption || s.ticket)}" loading="lazy"></a>`).join('')}</div>`
@@ -207,8 +227,8 @@ function dashboard() {
     ${wd === 'off' || wd === 'stopped' ? '<span class="sub">Start the day with <code>/mc-start</code> in Claude Code.</span>' : ''}
   </div>
   <div class="grid g3">
-    <a class="card ${d.needsYou.length ? 'needs' : ''}" href="#/inbox" style="color:inherit;text-decoration:none"><h3>Needs you</h3><div class="big">${d.needsYou.length}</div><div class="sub">${d.needsYou[0] ? esc(d.needsYou[0].question) : 'Nothing waiting on you.'}</div></a>
-    <div class="card"><h3>Epics</h3>${epics}</div>
+    <div class="card ${waiting ? 'needs' : ''}"><h3>Needs you</h3><div class="big">${waiting}</div><div class="sub stack">${needsLines.map((l) => `<div>${l}</div>`).join('') || 'Nothing waiting on you.'}</div></div>
+    <div class="card stack"><h3>${unitWord(true)} <span class="sub" style="text-transform:none;font-weight:400">· ${esc(d.mode.title)}</span></h3>${epics}</div>
     <div class="card"><h3>Today</h3><div>${t.ticketsMoved} ticket moves · ${t.commits} commits · ${t.messages} messages</div><div class="sub">Last checks: ${esc(checks)}</div></div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Team</h3><table class="team">${team}</table></div>
@@ -266,7 +286,8 @@ function chat(r) {
 function board(r) {
   const agent = r.query.get('agent') ?? '';
   const epic = r.query.get('epic') ?? '';
-  const all = Object.values(S.tickets).filter((t) => (!agent || t.assignee === agent) && (!epic || t.epic === epic));
+  const rel = r.query.get('release') ?? '';
+  const all = Object.values(S.tickets).filter((t) => (!agent || t.assignee === agent) && (!epic || t.epic === epic) && (!rel || t.release === rel));
   const cols = ['todo', 'in_progress', 'blocked', 'in_review', 'done']
     .map((st) => {
       const items = all.filter((t) => t.status === st).sort((a, b) => Number(a.id.split('-')[1]) - Number(b.id.split('-')[1]));
@@ -276,16 +297,19 @@ function board(r) {
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label ?? v)}</option>`;
   const agents = S.dashboard.team.map((m) => opt(m.id, agent)).join('');
   const epics = Object.keys(S.epics).map((e) => opt(e, epic, `${e} ${S.epics[e].title ?? ''}`)).join('');
+  const rels = S.units.filter((u) => /^R\d+$/.test(u.id)).map((u) => opt(u.id, rel, `${u.id} ${u.title}`)).join('');
   return `
   <div class="top"><h1 class="grow">Board</h1>
     <select data-filter="agent" aria-label="Filter by agent"><option value="">Everyone</option>${agents}</select>
-    <select data-filter="epic" aria-label="Filter by epic"><option value="">All epics</option>${epics}</select>
+    ${rels ? `<select data-filter="release" aria-label="Filter by release"><option value="">All releases</option>${rels}</select>` : ''}
+    ${epics ? `<select data-filter="epic" aria-label="Filter by epic"><option value="">All epics</option>${epics}</select>` : ''}
   </div>
   <div class="columns">${cols}</div>`;
 }
 function cardHtml(t) {
   const tags = [
-    t.epic && `<span class="tag">${esc(t.epic)}</span>`,
+    t.release && `<span class="tag">${esc(t.release)}</span>`,
+    !t.release && t.epic && `<span class="tag">${esc(t.epic)}</span>`,
     t.ui && '<span class="tag ui">UI</span>',
     t.kind !== 'task' && `<span class="tag warn">${esc(t.kind)}</span>`,
     t.blockedBy.length && `<span class="tag warn">⛔ ${esc(t.blockedBy.join(', '))}</span>`,
@@ -308,10 +332,12 @@ function ticketView(r) {
     <div class="card stack">
       <dl class="kv">
         <dt>Assignee</dt><dd>${t.assignee ? `<a href="#/team/${esc(t.assignee)}">${esc(t.assignee)}</a>` : 'nobody'}</dd>
-        <dt>Epic</dt><dd>${esc(t.epic ?? '–')}</dd>
+        ${t.release ? `<dt>Release</dt><dd><a href="#/releases/${esc(t.release)}">${esc(t.release)}</a> ${esc(S.units.find((u) => u.id === t.release)?.title ?? '')}</dd>` : ''}
+        ${t.epic || !t.release ? `<dt>Epic</dt><dd>${esc(t.epic ?? '–')}</dd>` : ''}
         <dt>Kind</dt><dd>${esc(t.kind)}${t.ui ? ' · UI' : ''}${t.domain ? ` · ${esc(t.domain)}` : ''}</dd>
         <dt>Depends on</dt><dd>${t.deps.map(idLink).join(', ') || '–'}</dd>
         ${t.blockedBy.length ? `<dt>Blocked by</dt><dd>${t.blockedBy.map((x) => linkify(x)).join(', ')}</dd>` : ''}
+        ${S.help.some((h) => h.tickets.includes(t.id)) ? `<dt>Human help</dt><dd>${S.help.filter((h) => h.tickets.includes(t.id)).map((h) => `<a href="#/help/${esc(h.id)}">${esc(h.id)}</a> ${pill(h.status === 'open' ? 'blocked' : 'done', h.status)}`).join(' ')}</dd>` : ''}
         <dt>Refs</dt><dd>${refLinks || '–'}</dd>
         <dt>Attempts</dt><dd>${t.attempts}</dd>
       </dl>
@@ -425,6 +451,95 @@ function team(r) {
   setTimeout(() => focus && document.querySelector(`[data-memory="${CSS.escape(focus)}"]`)?.click(), 0);
   if (!ROLES) api('/api/roles').then((x) => { ROLES = x; if (route().name === 'team') render(); });
   return `<div class="top"><h1 class="grow">Team</h1><span class="sub">${S.dashboard.team.length} agents · up to ${S.config.max_parallel} work at once</span></div>${hire}<div class="depts">${depts}</div><div style="margin-top:14px">${peopleHtml}</div>`;
+}
+
+// ---------- Human help: what only a person can do ----------
+const POLICY = [
+  'Create accounts and sign up for services',
+  'Get API keys and put secrets in .env (agents can never read or write it)',
+  'Pay for anything: plans, domains, app store fees',
+  'Push to GitHub (unless you set allow_push: true)',
+  'Deploy, change cloud resources, publish packages or apps',
+  'Install things globally, or delete anything outside the project',
+];
+function helpPage(r) {
+  const kind = r.query.get('kind') ?? '';
+  const items = S.help;
+  const open = items.filter((h) => h.status === 'open');
+  const counts = {};
+  for (const h of open) counts[h.kind] = (counts[h.kind] ?? 0) + 1;
+  const chips = [`<a href="#/help" class="${kind ? '' : 'on'}">All open <b>${open.length}</b></a>`, ...Object.entries(S.helpKinds).filter(([k]) => counts[k]).map(([k, label]) => `<a href="#/help?kind=${k}" class="${kind === k ? 'on' : ''}">${esc(label)} <b>${counts[k]}</b></a>`)].join('');
+  // what blocks work first, then what the nearest release needs, then oldest first
+  const need = (h) => Number(String(h.neededBy ?? '').replace(/\D/g, '')) || 1e6;
+  const shown = open
+    .filter((h) => !kind || h.kind === kind)
+    .sort((a, b) => b.waiting.length - a.waiting.length || need(a) - need(b) || Number(a.id.split('-')[1]) - Number(b.id.split('-')[1]));
+  const keys = (h) =>
+    h.env.length
+      ? `<div class="stack"><div class="sub">Add to <code>${esc(S.config.env_files[0])}</code>${S.config.env_files.length > 1 ? ` (or ${S.config.env_files.slice(1).map((f) => `<code>${esc(f)}</code>`).join(', ')})` : ''}:</div><div class="keys">${h.env.map((k) => `<span class="key ${h.envSet[k] ? 'set' : 'missing'}" title="${h.envSet[k] ? 'Found' : 'Not added yet'}">${h.envSet[k] ? '✓' : '○'} ${esc(k)}</span>`).join('')}</div></div>`
+      : '';
+  const card = (h) => `<div class="card stack help-card ${h.waiting.length ? 'blocking' : ''}" id="x-${esc(h.id)}">
+      <div class="row" style="flex-wrap:wrap"><b>${esc(h.id)}</b><b>${esc(h.title)}</b>${pill(h.waiting.length ? 'blocked' : 'draft', h.kindLabel)}${h.service ? `<span class="tag">${esc(h.service)}</span>` : ''}<span class="grow"></span>${h.neededBy ? `<span class="sub">needed by <a href="#/releases/${esc(h.neededBy)}">${esc(h.neededBy)}</a></span>` : ''}</div>
+      <div class="sub">${avatar(h.by)} asked by ${esc(nameOf(h.by))} · ${clock(h.ts)}${h.why ? ` · ${linkify(h.why)}` : ''}</div>
+      ${h.waiting.length ? `<div class="callout">⛔ Work is waiting on this: ${h.waiting.map(idLink).join(', ')}. It resumes when you mark it done.</div>` : h.tickets.length ? `<div class="sub">For ${h.tickets.map(idLink).join(', ')}</div>` : ''}
+      ${h.steps.length ? `<ol>${h.steps.map((x) => `<li>${linkify(x)}</li>`).join('')}</ol>` : ''}
+      ${keys(h)}
+      ${h.links.length ? `<div class="sub">Links: ${h.links.map(linkify).join(' · ')}</div>` : ''}
+      <form class="row" data-form="help-done" data-id="${esc(h.id)}" ${can('member') ? '' : 'hidden'} style="flex-wrap:wrap"><input name="note" placeholder="Note for the team (optional), e.g. test keys added" aria-label="Note" style="flex:1;min-width:220px"><button class="primary" type="submit">Mark done</button>${can('owner') ? `<button type="button" data-help-cancel="${esc(h.id)}">Not needed</button>` : ''}</form>
+    </div>`;
+  const done = items.filter((h) => h.status !== 'open');
+  const kinds = Object.entries(S.helpKinds).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+  return `<div class="top"><div class="grow"><h1>Human help</h1><div class="sub">Things only a person can do. Agents file them and keep working on mocks; anything parked on one resumes the moment you mark it done.</div></div></div>
+  <div class="help-kinds">${chips}</div>
+  <div class="stack">${shown.map(card).join('') || `<div class="card"><p class="empty">${open.length ? 'Nothing of this kind.' : 'Nothing needs you here right now.'}</p></div>`}</div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Always yours</h3><p class="sub">Agents are blocked from these by the safety hook, so they come here instead.</p><ul class="policy">${POLICY.map((p) => `<li>${esc(p)}</li>`).join('')}</ul><p class="sub">Also in <a href="#/file/.madcompany/human-help.md">.madcompany/human-help.md</a>. HQ checks that keys exist in ${S.config.env_files.map((f) => `<code>${esc(f)}</code>`).join(', ')}, never what they are.</p></div>
+    <div class="card stack"><h3>Add something only you can do</h3>
+      <form class="stack" data-form="help-add" ${can('member') ? '' : 'hidden'}>
+        <input name="title" placeholder="e.g. Renew the domain" aria-label="What needs doing">
+        <div class="row"><select name="kind" aria-label="Kind">${kinds}</select><input name="env" placeholder="Keys, e.g. SENDGRID_API_KEY" aria-label="Environment variable names" style="flex:1"></div>
+        <textarea name="steps" rows="3" placeholder="Steps, one per line (optional)" aria-label="Steps"></textarea>
+        <button class="primary" type="submit">Add</button>
+      </form>
+    </div>
+  </div>
+  ${done.length ? `<details class="card" style="margin-top:14px"><summary><b>Done</b> <span class="count">${done.length}</span></summary><div class="feed" style="margin-top:8px">${done.map((h) => `<div class="item" id="x-${esc(h.id)}"><b>${esc(h.id)}</b> ${esc(h.title)} ${pill(h.status === 'done' ? 'done' : 'todo', h.status)} <span class="sub">${esc(nameOf(h.doneBy ?? ''))} · ${clock(h.doneAt)}${h.note ? ` · ${linkify(h.note)}` : ''}</span></div>`).join('')}</div></details>` : ''}`;
+}
+
+// ---------- Releases (or epics in spec mode): delivered, reviewed by you, shipped ----------
+function releasesPage(r) {
+  const m = S.config.mode;
+  const units = S.units;
+  const isRel = (u) => /^R\d+$/.test(u.id);
+  const tickets = (u) => Object.values(S.tickets).filter((t) => (isRel(u) ? t.release === u.id : t.epic === u.id));
+  const card = (u) => {
+    const ts = tickets(u);
+    const pct = u.total ? Math.round((100 * u.done) / u.total) : 0;
+    const last = u.reviews.at(-1);
+    const review =
+      u.status === 'review'
+        ? `<div class="callout review-box stack"><b>Your review.</b> Click through it in <a href="#/preview">Preview</a>, then approve it or say what should change.
+            <div class="row" style="flex-wrap:wrap">${can('owner') ? `<button class="primary" data-approve="${esc(u.id)}">Approve ${esc(u.id)}</button>` : ''}</div>
+            <form class="stack" data-form="changes" data-id="${esc(u.id)}" ${can('member') ? '' : 'hidden'}><textarea name="notes" data-keep rows="2" placeholder="What should change? It goes back to the team as a ticket in ${esc(u.id)}." aria-label="Changes"></textarea><button type="submit">Request changes</button></form></div>`
+        : u.status === 'approved'
+          ? `<div class="callout">Approved${last ? ` by ${esc(nameOf(last.by))}` : ''}. The lead ships it with <code>npx madcompany ship ${esc(u.id)}</code>: merge into <code>${esc(S.config.main_branch)}</code> and tag${u.version ? ` <code>${esc(u.version)}</code>` : ''}. Pushing and deploying come to you in <a href="#/help">Human help</a>.</div>`
+          : u.status === 'shipped'
+            ? `<div class="callout">Shipped to <code>${esc(S.config.main_branch)}</code>${u.version ? ` as <code>${esc(u.version)}</code>` : ''}.</div>`
+            : '';
+    return `<div class="card stack unit ${esc(u.status)}" id="x-${esc(u.id)}">
+      <div class="row" style="flex-wrap:wrap"><h2 style="margin:0">${esc(u.id)} · ${esc(u.title)}</h2>${unitPill(u.status)}${u.version ? `<span class="tag">${esc(u.version)}</span>` : ''}<span class="grow"></span><span class="sub">${u.done}/${u.total} tickets</span></div>
+      ${u.goal ? `<div><b>Goal:</b> ${linkify(u.goal)}</div>` : ''}
+      <div class="bar"><span style="width:${pct}%"></span></div>
+      <div class="meta" style="display:flex;flex-wrap:wrap;gap:6px">${ts.map((t) => `<a class="tag" href="#/ticket/${esc(t.id)}" title="${esc(t.title)}">${esc(t.id)} · ${esc(STATUS_LABEL[t.status])}</a>`).join('') || '<span class="sub">No tickets yet.</span>'}</div>
+      <div class="sub mono">branch ${esc(u.branch)}${u.notes ? ` · <a href="#/file/${esc(u.notes)}">release notes</a>` : ''} · <a href="#/board?${isRel(u) ? 'release' : 'epic'}=${esc(u.id)}">board</a></div>
+      ${review}
+      ${u.reviews.length ? `<div class="sub">${u.reviews.map((v) => `${clock(v.ts)} ${esc(nameOf(v.by))}: ${v.verdict === 'approve' ? 'approved' : `asked for changes — ${linkify(v.notes)}`}`).join('<br>')}</div>` : ''}
+    </div>`;
+  };
+  const ladder = m.unit === 'release' ? `<div class="ladder">${S.config.modes[m.name].ladder.map(([t, what], i, all) => `<div><b>R${i + 1}${i === all.length - 1 ? '+' : ''} · ${esc(t)}</b><div class="sub">${esc(what)}</div></div>`).join('')}</div>` : '';
+  return `<div class="top"><div class="grow"><h1>${unitWord(true)}</h1><div class="sub">${esc(m.title)}: ${esc(S.config.modes[m.name].for)}</div></div></div>
+  <div class="card"><h3>How ${unitWord(true).toLowerCase()} work here</h3><div class="sub">${esc(m.guidance)}</div>${ladder}<div class="sub" style="margin-top:8px">Switch with <code>npx madcompany mode &lt;${Object.keys(S.config.modes).join('|')}&gt;</code>.</div></div>
+  <div class="stack" style="margin-top:14px">${[...units].reverse().map(card).join('') || `<div class="card"><p class="empty">No ${unitWord(true).toLowerCase()} yet. In Claude Code, run <code>${byRelease() ? '/mc-plan-release' : '/mc-plan-epic'}</code>.</p></div>`}</div>`;
 }
 
 function preview() {
@@ -724,6 +839,43 @@ function wire(r) {
   );
   $main.querySelectorAll('select[data-model]').forEach((sel) =>
     sel.addEventListener('change', () => act(() => api('/api/team/model', { id: sel.dataset.model, model: sel.value }))),
+  );
+  $main.querySelectorAll('form[data-form="help-done"]').forEach((f) =>
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { id: f.dataset.id, note: f.note.value.trim() };
+      try {
+        await api('/api/help/done', body);
+      } catch (err) {
+        if (!/^Not found in/.test(err.message)) return alert(err.message);
+        if (!confirm(`${err.message}\n\nMark it done anyway?`)) return;
+        await api('/api/help/done', { ...body, force: true }).catch((e2) => alert(e2.message));
+      }
+      await refresh();
+    }),
+  );
+  $main.querySelectorAll('[data-help-cancel]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const reason = prompt(`Why isn't ${b.dataset.helpCancel} needed? (the team sees this)`);
+      if (reason !== null) act(() => api('/api/help/cancel', { id: b.dataset.helpCancel, reason }));
+    }),
+  );
+  $main.querySelector('form[data-form="help-add"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const env = f.env.value.split(/[\s,]+/).filter(Boolean);
+    const steps = f.steps.value.split('\n').map((x) => x.trim()).filter(Boolean);
+    act(() => api('/api/help', { title: f.title.value.trim(), kind: f.kind.value, env, steps, why: 'Added in HQ' }));
+  });
+  $main.querySelectorAll('[data-approve]').forEach((b) =>
+    b.addEventListener('click', () => confirm(`Approve ${b.dataset.approve}? The lead then ships it into ${S.config.main_branch}.`) && act(() => api('/api/review', { id: b.dataset.approve, verdict: 'approve' }))),
+  );
+  $main.querySelectorAll('form[data-form="changes"]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const notes = f.notes.value.trim();
+      if (notes) act(() => api('/api/review', { id: f.dataset.id, verdict: 'changes', notes }));
+    }),
   );
   $main.querySelectorAll('[data-size]').forEach((b) =>
     b.addEventListener('click', () => {

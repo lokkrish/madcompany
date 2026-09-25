@@ -73,6 +73,8 @@ textarea { width: 100%; resize: vertical; min-height: 44px; }
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .side-foot { margin-top: auto; color: var(--muted); font-size: 12px; padding: 8px; display: flex; align-items: center; gap: 6px; }
 .badge { background: var(--red); color: #fff; border-radius: 999px; font-size: 11px; padding: 0 7px; font-weight: 700; }
+.badge.amber { background: var(--amber); }
+.badge.soft { background: var(--purple); }
 main { overflow: auto; padding: 20px 24px 40px; }
 main:focus { outline: none; }
 
@@ -233,3 +235,28 @@ mark { background: var(--amber-soft); color: inherit; border-radius: 3px; paddin
   .columns { grid-template-columns: repeat(5, 240px); overflow-x: auto; }
   main { padding: 16px; }
 }
+
+/* Human help */
+.help-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+.help-kinds a { border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; color: var(--text); background: var(--panel); font-size: 13px; }
+.help-kinds a.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.help-kinds a:hover { text-decoration: none; border-color: var(--accent); }
+.help-card { border-left: 4px solid var(--amber); }
+.help-card.blocking { border-left-color: var(--red); }
+.help-card.done { border-left-color: var(--green); opacity: .85; }
+.help-card ol { margin: 6px 0 0; padding-left: 22px; }
+.help-card ol li { margin: 3px 0; }
+.keys { display: flex; flex-wrap: wrap; gap: 6px; }
+.key { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; border-radius: 6px; padding: 2px 8px; background: var(--gray-soft); }
+.key.set { background: var(--green-soft); color: var(--green); }
+.key.missing { background: var(--amber-soft); color: var(--amber); }
+.policy li { margin: 4px 0; }
+
+/* Releases */
+.unit { border-left: 4px solid var(--line); }
+.unit.review { border-left-color: var(--purple); }
+.unit.approved, .unit.shipped { border-left-color: var(--green); }
+.unit.building { border-left-color: var(--accent); }
+.ladder { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.ladder > div { flex: 1 1 200px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; }
+.review-box textarea { width: 100%; }

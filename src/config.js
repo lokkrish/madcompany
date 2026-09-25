@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import YAML from 'yaml';
 import { ROLES } from './roles.js';
+import { MODES } from './modes.js';
 
 export class McError extends Error {}
 
@@ -10,6 +11,13 @@ const PROFILES = new Set(['developer', 'reviewer', 'lead']);
 const DEFAULTS = {
   project: { name: 'My app', key: 'APP' },
   owner: 'You',
+  // how the project is built (see src/modes.js); projects from before modes existed are spec-driven
+  mode: 'spec',
+  main_branch: 'main',
+  // where HQ looks to see whether a key from Human help has been added (it never reads the values)
+  env_files: ['.env', '.env.local'],
+  // your deploy steps; after "madcompany ship" they become a Human help item
+  deploy: [],
   max_parallel: 3,
   checks: [],
   preview: { url: null },
@@ -35,6 +43,9 @@ export function parseTeam(text) {
   // YAML turns an empty key (e.g. "checks:" with only comments) into null
   for (const k of Object.keys(DEFAULTS)) if (cfg[k] == null) cfg[k] = DEFAULTS[k];
   cfg.checks = toList(cfg.checks);
+  cfg.env_files = toList(cfg.env_files);
+  cfg.deploy = toList(cfg.deploy);
+  if (!MODES[cfg.mode]) throw new McError(`mode must be one of ${Object.keys(MODES).join(', ')}, got "${cfg.mode}"`);
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(cfg.project.key)) {
     throw new McError(`project.key must be 2-10 capital letters or digits, got "${cfg.project.key}"`);
   }

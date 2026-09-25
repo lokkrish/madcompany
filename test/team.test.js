@@ -133,6 +133,22 @@ test('shared HQ: everyone signs in, and permissions follow their role', async ()
     assert.equal((await call(base, '/api/cli', { method: 'POST', host: `localhost:${port}`, headers: { 'x-forwarded-for': '203.0.113.9', 'x-madcompany-cli': '1' }, body: { op: 'status', args: ['cli'] } })).status, 403);
     assert.equal((await call(base, '/api/cli', { method: 'POST', host: `localhost:${port}`, headers: { 'x-madcompany-cli': '1' }, body: { op: 'status', args: ['cli'] } })).status, 200);
 
+    // releases: members ask for changes, only owners approve; viewers can't mark Human help done
+    hq.core.startDay('lead');
+    hq.core.planRelease('lead', { title: 'MVP', goal: 'Sign up' });
+    const t = hq.core.createTicket('lead', { title: 'Sign-up screen', release: 'R1' }).ticket;
+    hq.store.append('ticket.status', 'cli', { id: t.id, status: 'done' }); // the ticket gates are covered in core tests
+    hq.core.readyForReview('lead', 'R1');
+    assert.equal((await call(base, '/api/review', { method: 'POST', host, cookie: priya, body: { id: 'R1', verdict: 'approve' } })).status, 403);
+    assert.equal((await call(base, '/api/review', { method: 'POST', host, cookie: priya, body: { id: 'R1', verdict: 'changes', notes: 'Bigger button' } })).status, 200);
+    const help = hq.core.requestHelp('arjun', { title: 'Stripe keys', kind: 'secret', env: ['STRIPE_SECRET_KEY'] });
+    assert.equal((await call(base, '/api/help/done', { method: 'POST', host, cookie: sam, body: { id: help.id } })).status, 403);
+    assert.match((await call(base, '/api/help/done', { method: 'POST', host, cookie: priya, body: { id: help.id } })).json.error, /Not found in/);
+    assert.equal((await call(base, '/api/help/done', { method: 'POST', host, cookie: priya, body: { id: help.id, force: true } })).status, 200);
+    const state = (await call(base, '/api/state', { host, cookie: sam })).json;
+    assert.equal(state.help[0].doneBy, 'priya');
+    assert.equal(state.units[0].status, 'building');
+
     // removing someone ends their access
     assert.equal((await call(base, '/api/people/remove', { method: 'POST', host, cookie: owner, body: { id: 'priya' } })).status, 200);
     assert.equal((await call(base, '/api/state', { host, cookie: priya })).status, 401);

@@ -149,11 +149,13 @@ export function createLibrary({ paths, config, store }) {
       ]),
       cat('architecture', 'Architecture & design', 'Architecture, tech specs and the design packs developers publish before coding.', [
         ['Architecture', take(byLabel(planning, ['Architecture', 'Tech spec', 'Project context']))],
+        ['Codebase map', byLabel(design, ['Codebase map'])],
         ['API contracts', byLabel(design, ['API contract'])],
         ['Data models', byLabel(design, ['Data model'])],
         ['Module sketches & flows', byLabel(design, ['Design pack'])],
       ]),
-      cat('delivery', 'Epics & delivery', 'Epics, stories, sprint status and readiness checks.', [
+      cat('delivery', 'Releases & epics', 'Release notes, epics, stories, sprint status and the board.', [
+        ['Release notes', byLabel(records, ['Release notes'])],
         ['Epics & stories', take(byLabel(planning, ['Epics & stories']))],
         ['Stories', take(byLabel(planning, ['Story']))],
         ['Sprint & checks', take(byLabel(planning, ['Sprint status', 'Checks']))],
@@ -162,9 +164,9 @@ export function createLibrary({ paths, config, store }) {
       cat('meetings', 'Meetings', 'Minutes of every session with you: planning, UI sprints, demos and daily wrap-ups.', groupBy([...s.minutes].reverse(), (m) => MEETING_KINDS[m.kind] ?? 'Other', Object.values(MEETING_KINDS))),
       cat('conversations', 'Conversations', 'Your Claude Code sessions in this project, including the planning agents.', config.library?.sessions === false ? [] : [['Claude Code sessions', sessions()]]),
       cat('links', 'Links', 'Claude artifacts, Figma, docs and other links, saved or found in docs and chat.', groupBy(allLinks, (l) => LINK_GROUPS[l.kind] ?? 'Other links', Object.values(LINK_GROUPS))),
-      cat('records', 'Records', 'Decisions, questions, your answers, credentials you will need, the team and chat logs.', [
+      cat('records', 'Records', 'Decisions, questions, your answers, Human help, the team and chat logs.', [
         ['Decisions & answers', byLabel(records, ['Decisions', 'Questions', 'Facts'])],
-        ['Credentials needed', byLabel(records, ['Credentials'])],
+        ['Human help', byLabel(records, ['Human help', 'Credentials'])],
         ['Team', byLabel(records, ['Team'])],
         ['Chat logs', byLabel(records, ['Chat log'])],
       ]),
@@ -175,6 +177,7 @@ export function createLibrary({ paths, config, store }) {
 
   function designLabel(rel) {
     const base = rel.toLowerCase();
+    if (base.startsWith('docs/design/codebase/')) return 'Codebase map';
     const text = TEXT.test(rel) ? readText(rel).slice(0, 20000) : '';
     if (/api|openapi|contract|endpoint|swagger/.test(base) || /^openapi:|\|\s*method\s*\|\s*path|\b(GET|POST|PUT|PATCH|DELETE)\s+\/\w/im.test(text)) return 'API contract';
     if (/schema|erd|data[-_]?model|database|\bdb\b|entities/.test(base) || /erDiagram|CREATE TABLE|^model \w+ \{/im.test(text)) return 'Data model';
@@ -186,6 +189,8 @@ export function createLibrary({ paths, config, store }) {
     if (rel.endsWith('log/questions.md')) return 'Questions';
     if (rel.endsWith('facts.md')) return 'Facts';
     if (rel.endsWith('credentials-needed.md')) return 'Credentials';
+    if (rel.endsWith('.madcompany/human-help.md')) return 'Human help';
+    if (rel.startsWith('.madcompany/releases/')) return 'Release notes';
     if (rel.includes('/log/chat/')) return 'Chat log';
     if (rel.endsWith('team.yaml')) return 'Team';
     return 'Record';

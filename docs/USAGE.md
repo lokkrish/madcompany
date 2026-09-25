@@ -33,7 +33,7 @@ npx madcompany hq        # http://127.0.0.1:4317
 
 Open `claude` in the project once and **accept the trust prompt**. Until you do, Claude Code ignores the project's permission settings, and background agents can't run anything.
 
-**Via BMad instead:** `npx bmad-method install --custom-source https://github.com/lokkrish/BMAD-company --tools claude-code`, then run `/mc-setup` in Claude Code.
+**Via BMad instead:** `npx bmad-method install --custom-source https://github.com/lokkrish/madcompany --tools claude-code`, then run `/mc-setup` in Claude Code.
 
 ## 2. Staff the team: `/mc-staff`
 

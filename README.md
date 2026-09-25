@@ -48,7 +48,7 @@ claude                       # accept the trust prompt once, then:
 /mc-start                    # the team works; you watch HQ
 ```
 
-Or install it as a BMad module: `npx bmad-method install --custom-source https://github.com/lokkrish/BMAD-company --tools claude-code`, then run `/mc-setup`.
+Or install it as a BMad module: `npx bmad-method install --custom-source https://github.com/lokkrish/madcompany --tools claude-code`, then run `/mc-setup`.
 
 **Just looking?** `npx madcompany demo my-demo && cd my-demo && npx madcompany hq` builds a sample project with a day of simulated team activity.
 

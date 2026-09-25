@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { loadConfig, member, McError } from './config.js';
 import { ROLES, TEMPLATES, suggestId } from './roles.js';
+import { MODES, modeInfo } from './modes.js';
 import { ensureDir } from './paths.js';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,13 +32,17 @@ function readJson(file) {
  * Set up madcompany in an app project. Never overwrites your files; merges
  * into .mcp.json, .claude/settings.json and .gitignore.
  */
-export function init(paths, { skills = true, port = 4317, log = console.log } = {}) {
+export function init(paths, { skills = true, port = 4317, mode = null, log = console.log } = {}) {
   const { root } = paths;
   log(`Setting up madcompany in ${root}`);
   ensureDir(paths.dir);
-  writeIfMissing(paths.team, T('team.yaml'), log);
+  if (mode && !MODES[mode]) throw new McError(`Unknown mode "${mode}". Use one of: ${Object.keys(MODES).join(', ')}`);
+  const fresh = writeIfMissing(paths.team, T('team.yaml'), log);
+  if (mode) {
+    setMode(paths, mode, { restaff: false });
+    log(`  mode: ${mode} (${MODES[mode].title})`);
+  } else if (fresh) log(`  mode: ${loadConfig(paths).mode} (change it with: npx madcompany mode <${Object.keys(MODES).join('|')}>)`);
   writeIfMissing(paths.facts, '# Facts\n\nAnswers you have given. Agents check this before asking you anything.\n', log);
-  writeIfMissing(path.join(paths.dir, 'credentials-needed.md'), T('credentials-needed.md'), log);
   writeIfMissing(path.join(root, 'docker-compose.madcompany.yml'), T('docker-compose.madcompany.yml'), log);
   ensureDir(paths.log);
   ensureDir(paths.agents);
@@ -89,7 +94,7 @@ export function init(paths, { skills = true, port = 4317, log = console.log } = 
       const dest = path.join(root, '.claude', 'skills', name);
       fs.cpSync(path.join(src, name), dest, { recursive: true });
     }
-    log('  installed skills into .claude/skills/ (/mc-start, /mc-staff, /mc-plan-epic, /mc-ui-sprint, …)');
+    log('  installed skills into .claude/skills/ (/mc-staff, /mc-plan-release, /mc-ui-sprint, /mc-start, /mc-scan, …)');
   }
 }
 
@@ -183,7 +188,8 @@ export function staff(paths, { log = console.log } = {}) {
       .filter(Boolean)
       .join('\n');
     const duties = m.duties.length ? `\n\n## Your role\n\n${m.duties.map((d) => `- ${d}`).join('\n')}` : '';
-    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}${duties}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
+    const how = `\n\n## How this project is built: ${modeInfo(cfg.mode).title}\n\n${modeInfo(cfg.mode).guidance}`;
+    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}${duties}${how}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
     fs.writeFileSync(path.join(agentsDir, `${name}.md`), content);
     log(`  wrote .claude/agents/${name}.md`);
   }
@@ -245,6 +251,18 @@ export function applyTemplate(paths, name, { force = false, busy = [] } = {}) {
     doc.set('max_parallel', t.max_parallel);
     doc.set('team', doc.createNode(t.team.map(({ id, type }) => ({ id, type }))));
   });
+}
+
+/** Switch how the project is built (MODE-1). Regenerates the agents so they follow it. */
+export function setMode(paths, name, { restaff = true } = {}) {
+  if (!MODES[name]) throw new McError(`Unknown mode "${name}". Use one of: ${Object.keys(MODES).join(', ')}`);
+  const doc = YAML.parseDocument(fs.readFileSync(paths.team, 'utf8'));
+  doc.set('mode', name);
+  const text = doc.toString({ flowCollectionPadding: false });
+  loadConfig({ ...paths, team: null, _text: text });
+  fs.writeFileSync(paths.team, text);
+  if (restaff) staff(paths, { log: () => {} });
+  return modeInfo(name);
 }
 
 export function hireMember(paths, f = {}) {

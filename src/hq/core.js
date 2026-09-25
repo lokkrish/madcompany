@@ -2,11 +2,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { McError, member } from '../config.js';
-import { ensureDir } from '../paths.js';
+import { ensureDir, safeJoin } from '../paths.js';
+import { modeInfo } from '../modes.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'in_review', 'done'];
 const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const HUMAN = 'you';
+// what only a person can do; each Human help item has one of these kinds
+export const HELP_KINDS = {
+  account: 'Accounts & sign-ups',
+  secret: 'Keys & secrets',
+  setup: 'Service setup',
+  money: 'Payments & purchases',
+  ship: 'Push, deploy & publish',
+  access: 'Access, data & legal',
+  other: 'Other',
+};
 
 /**
  * All state changes go through here, whether they come from an agent (MCP),
@@ -40,16 +51,25 @@ export function createCore({ store, config, paths }) {
     const up = String(id).toUpperCase();
     if (s().tickets[up]) return s().tickets[up].status === 'done';
     if (s().questions[up]) return s().questions[up].status === 'answered';
+    if (s().help[up]) return s().help[up].status !== 'open';
     return false;
   };
+  const mode = () => modeInfo(config.mode);
+  const byRelease = () => mode().unit === 'release';
   const depsDone = (t) => t.deps.every(isDone);
   const blockersDone = (t) => t.blockedBy.every(isDone);
   const isReady = (t) =>
     (t.status === 'todo' && depsDone(t)) || (t.status === 'blocked' && blockersDone(t) && depsDone(t));
 
+  function unitBranch(id) {
+    if (/^R\d+$/i.test(id)) return `release/${id.toLowerCase()}`;
+    return `epic/${String(id).replace(/^E(pic)?[-\s]*/i, '').toLowerCase()}`;
+  }
   function epicBranch(t) {
-    // tickets without an epic still merge into their own integration branch, never straight into main
-    return t.epic ? `epic/${String(t.epic).replace(/^E(pic)?[-\s]*/i, '').toLowerCase()}` : 'epic/misc';
+    // tickets merge into their release or epic branch, never straight into main
+    if (t.release) return unitBranch(t.release);
+    if (t.epic) return unitBranch(t.epic);
+    return byRelease() ? 'release/next' : 'epic/misc';
   }
 
   function workdayControl(as) {
@@ -144,7 +164,7 @@ export function createCore({ store, config, paths }) {
   }
 
   function briefTicket(t) {
-    return { id: t.id, title: t.title, status: t.status, assignee: t.assignee, epic: t.epic, domain: t.domain, deps: t.deps, blockedBy: t.blockedBy, ui: t.ui, kind: t.kind };
+    return { id: t.id, title: t.title, status: t.status, assignee: t.assignee, epic: t.epic, release: t.release, domain: t.domain, deps: t.deps, blockedBy: t.blockedBy, ui: t.ui, kind: t.kind };
   }
 
   function status(as) {
@@ -163,6 +183,9 @@ export function createCore({ store, config, paths }) {
       todo_count: tickets.filter((t) => t.status === 'todo').length,
       done_count: tickets.filter((t) => t.status === 'done').length,
       open_questions: Object.values(s().questions).filter((q) => q.status === 'open').map((q) => ({ id: q.id, from: q.from, to: q.to, question: q.question })),
+      mode: { name: mode().name, title: mode().title, unit: mode().unit, guidance: mode().guidance },
+      current_release: byRelease() ? currentRelease() : null,
+      human_help_open: Object.values(s().help).filter((h) => h.status === 'open').map((h) => ({ id: h.id, title: h.title, kind: h.kind, tickets: h.tickets })),
       unread: isHuman(as) || as === 'cli' ? 0 : inboxFor(as).length,
       control: workdayControl(as),
     };
@@ -177,6 +200,7 @@ export function createCore({ store, config, paths }) {
       epics[key].total += 1;
       if (t.status === 'done') epics[key].done += 1;
     }
+    const help = Object.values(s().help).filter((h) => h.status === 'open');
     const today = new Date().toISOString().slice(0, 10);
     const todays = store.events.filter((e) => e.ts.startsWith(today));
     const shots = tickets
@@ -192,6 +216,10 @@ export function createCore({ store, config, paths }) {
       workday: s().workday,
       team: teamView(),
       epics: Object.values(epics),
+      mode: { name: mode().name, title: mode().title, unit: mode().unit },
+      units: units(),
+      inReview: units().filter((u) => u.status === 'review').map((u) => ({ id: u.id, title: u.title })),
+      help: { open: help.length, blocking: help.filter((h) => waitingOn(h.id).length).length, top: help.slice(0, 3).map((h) => ({ id: h.id, title: h.title })) },
       needsYou: Object.values(s().questions).filter((q) => q.to === HUMAN && q.status === 'open').map((q) => ({ id: q.id, question: q.question })),
       blocked: tickets.filter((t) => t.status === 'blocked').map((t) => ({ id: t.id, title: t.title, blockedBy: t.blockedBy, assignee: t.assignee })),
       shots,
@@ -220,6 +248,7 @@ export function createCore({ store, config, paths }) {
       handoffs: s().handoffs,
       // the humans in HQ besides "you"; agents can @mention them
       people: config.people,
+      mode_guidance: mode().guidance,
       human_messages: s().messages.filter((m) => isHuman(m.by)).slice(-5),
       answered_for_you: Object.values(s().questions).filter((q) => q.status === 'answered' && isHuman(q.answeredBy)).slice(-5),
     };
@@ -277,6 +306,7 @@ export function createCore({ store, config, paths }) {
       if (existing) return { ticket: briefTicket(existing), existing: true };
     }
     if (f.assignee && !isMember(f.assignee)) throw new McError(`Unknown assignee "${f.assignee}".`);
+    const release = f.release ? unit(f.release, 'release').id : !f.epic && byRelease() ? currentRelease()?.id ?? null : null;
     const id = nextId('ticket', config.project.key);
     const deps = checkDeps(f.deps);
     if (f.epic && !s().epics[f.epic]) store.append('epic.upsert', as, { id: f.epic, title: f.epicTitle ?? f.epic, phase: 'build' });
@@ -284,6 +314,7 @@ export function createCore({ store, config, paths }) {
       id,
       title: String(f.title),
       epic: f.epic ?? null,
+      release,
       body: f.body ?? '',
       domain: f.domain ?? null,
       deps,
@@ -301,6 +332,7 @@ export function createCore({ store, config, paths }) {
     const t = ticket(id);
     const clean = {};
     for (const k of ['title', 'body', 'domain', 'ui', 'epic', 'refs']) if (k in fields) clean[k] = fields[k];
+    if ('release' in fields) clean.release = fields.release ? unit(fields.release, 'release').id : null;
     if ('deps' in fields) clean.deps = checkDeps(fields.deps, t.id);
     if (!Object.keys(clean).length) throw new McError('Nothing to update.');
     store.append('ticket.update', as, { id: t.id, fields: clean });
@@ -342,17 +374,22 @@ export function createCore({ store, config, paths }) {
     if (t.attempts >= config.limits.attempts) {
       throw new McError(`${t.id} has hit its limit of ${config.limits.attempts} attempts. Don't retry: ask the lead with mc_ask.`);
     }
+    // read the blockers before claiming: a claim clears them
+    const blockers = [...t.blockedBy];
     store.append('ticket.claim', as, { id: t.id });
+    if (t.release && s().releases[t.release]?.status === 'planned') store.append('unit.status', as, { id: t.release, status: 'building' });
     const depNotes = t.deps.map((d) => {
       const dt = s().tickets[d];
       return { id: d, title: dt.title, lastWorklog: dt.worklog.at(-1)?.text ?? null };
     });
-    const blockerNotes = t.blockedBy.map((b) => s().questions[b] ?? s().tickets[b]).filter(Boolean);
+    const blockerNotes = blockers.map((b) => s().questions[b] ?? s().tickets[b] ?? s().help[b]).filter(Boolean);
     return {
       ticket: { ...briefTicket(t), body: t.body, refs: t.refs, attempts: t.attempts },
       resume_from: t.checkpoint,
       dependencies: depNotes,
-      resolved_blockers: blockerNotes.map((b) => (b.question ? { id: b.id, question: b.question, answer: b.answer } : { id: b.id, title: b.title })),
+      resolved_blockers: blockerNotes.map((b) =>
+        b.question ? { id: b.id, question: b.question, answer: b.answer } : b.steps ? { id: b.id, title: b.title, status: b.status, note: b.note, env: b.env } : { id: b.id, title: b.title },
+      ),
       git: gitPlan(t),
       env: env(as),
       facts: s().facts.map((f) => `${f.id}: ${f.text}`),
@@ -427,8 +464,8 @@ export function createCore({ store, config, paths }) {
     const t = ticket(id);
     mustOwn(as, t, 'in_progress');
     const blockedBy = (f.blockedBy ?? []).map((b) => String(b).toUpperCase());
-    if (!blockedBy.length) throw new McError('Say what blocks it: blockedBy is a list of ticket or question IDs.');
-    for (const b of blockedBy) if (!s().tickets[b] && !s().questions[b]) throw new McError(`${b} isn't a ticket or question ID.`);
+    if (!blockedBy.length) throw new McError('Say what blocks it: blockedBy is a list of ticket, question or HELP IDs.');
+    for (const b of blockedBy) if (!s().tickets[b] && !s().questions[b] && !s().help[b]) throw new McError(`${b} isn't a ticket, question or HELP ID.`);
     if (!f.done || !f.next) throw new McError('A checkpoint needs "done" (what is finished) and "next" (the exact next step).');
     store.append('ticket.checkpoint', as, { id: t.id, done: f.done, next: f.next, files: f.files ?? [], questions: f.questions ?? [] });
     store.append('ticket.status', as, { id: t.id, status: 'blocked', blockedBy });
@@ -760,6 +797,187 @@ export function createCore({ store, config, paths }) {
     return 'Web';
   }
 
+  // ---------- releases and epics: what gets delivered, reviewed by you, then shipped ----------
+  const UNIT_STATUSES = ['planned', 'building', 'review', 'approved', 'shipped'];
+  function unit(id, want) {
+    const key = String(id ?? '').trim().toUpperCase();
+    const u = s().releases[key] ?? s().epics[key] ?? s().epics[String(id)];
+    if (!u || (want === 'release' && !s().releases[key])) throw new McError(`No ${want ?? 'release or epic'} ${id}.${want === 'release' ? ' Plan it first with mc_release.' : ''}`);
+    return u;
+  }
+  function unitTickets(u) {
+    return Object.values(s().tickets).filter((t) => (s().releases[u.id] ? t.release === u.id : t.epic === u.id));
+  }
+  /** Where new tickets go: the first release still being planned or built, else the one in review. */
+  function currentRelease() {
+    const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
+    const all = Object.values(s().releases).sort(byId);
+    return all.find((r) => ['planned', 'building'].includes(r.status)) ?? all.find((r) => r.status === 'review') ?? null;
+  }
+  function units() {
+    // spec mode delivers epics, but a release planned there still shows up
+    const list = byRelease() ? Object.values(s().releases) : [...Object.values(s().epics), ...Object.values(s().releases)];
+    return list
+      .map((u) => {
+        const ts = unitTickets(u);
+        return { id: u.id, title: u.title, goal: u.goal ?? '', status: u.status ?? 'building', version: u.version ?? null, total: ts.length, done: ts.filter((t) => t.status === 'done').length, reviews: u.reviews ?? [], branch: unitBranch(u.id), notes: u.notes ?? null };
+      })
+      .sort((a, b) => a.id[0].localeCompare(b.id[0]) || Number(a.id.replace(/\D/g, '')) - Number(b.id.replace(/\D/g, '')));
+  }
+  function planRelease(as, f = {}) {
+    leadOnly(as, 'plan releases', { allowHuman: true, allowCli: true });
+    if (f.id && s().releases[String(f.id).toUpperCase()]) {
+      const r = unit(f.id, 'release');
+      const fields = Object.fromEntries(['title', 'goal', 'version'].filter((k) => f[k] != null).map((k) => [k, String(f[k])]));
+      store.append('release.upsert', as, { id: r.id, ...fields });
+      return { release: s().releases[r.id] };
+    }
+    if (!f.title || !f.goal) throw new McError('A release needs a title and a goal: what the human will be able to see or do at the end of it.');
+    const id = `R${(s().counters.release ?? 0) + 1}`;
+    store.append('release.upsert', as, { id, title: String(f.title), goal: String(f.goal), version: f.version ? String(f.version) : null });
+    return { release: s().releases[id], branch: unitBranch(id), note: `New tickets go into ${id} automatically while it is the current release.` };
+  }
+  function readyForReview(as, id) {
+    leadOnly(as, 'send a release or epic for review', { allowCli: true });
+    const u = unit(id);
+    if (u.status === 'approved' || u.status === 'shipped') throw new McError(`${u.id} is already ${u.status}.`);
+    const ts = unitTickets(u);
+    if (!ts.length) throw new McError(`${u.id} has no tickets.`);
+    const open = ts.filter((t) => t.status !== 'done');
+    if (open.length) throw new McError(`${u.id} still has open tickets: ${open.map((t) => `${t.id} (${t.status})`).join(', ')}.`);
+    store.append('unit.status', as, { id: u.id, status: 'review' });
+    const env = integrationEnv();
+    post(as, { channel: 'general', text: `${u.id} ${u.title} is ready for your review: open HQ → ${s().releases[u.id] ? 'Releases' : 'Epics'}, click through it in Preview (http://localhost:${env.ports.web}), then approve it or ask for changes.` });
+    return { ok: true, status: 'review' };
+  }
+  function reviewUnit(as, id, f = {}) {
+    if (!isHuman(as)) throw new McError('Only a person reviews a release or epic.');
+    const u = unit(id);
+    if (u.status !== 'review') throw new McError(`${u.id} isn't waiting for review (it is ${u.status ?? 'building'}).`);
+    if (!['approve', 'changes'].includes(f.verdict)) throw new McError('verdict must be "approve" or "changes".');
+    if (f.verdict === 'changes' && !String(f.notes ?? '').trim()) throw new McError('Say what should change.');
+    store.append('unit.review', as, { id: u.id, verdict: f.verdict, notes: f.notes ?? '' });
+    if (f.verdict === 'changes') {
+      const res = change({ text: String(f.notes), unit: u.id }, as);
+      return { ok: true, status: 'building', ticket: res.ticket.id };
+    }
+    writeReleaseNotes(u.id);
+    return { ok: true, status: 'approved', notes: s().releases[u.id]?.notes ?? s().epics[u.id]?.notes };
+  }
+  /** Called by `npx madcompany ship` once the branch is merged into main. */
+  function shipped(as, id, f = {}) {
+    leadOnly(as, 'mark a release shipped', { allowCli: true });
+    const u = unit(id);
+    if (u.status !== 'approved') throw new McError(`${u.id} is ${u.status ?? 'building'}; it ships after you approve it.`);
+    store.append('unit.status', as, { id: u.id, status: 'shipped', notes: writeReleaseNotes(u.id, f) });
+    const push = `git push origin ${config.main_branch}${f.tag ? ` && git push origin ${f.tag}` : ''}`;
+    const help = requestHelp(as === 'cli' ? lead : as, {
+      title: `Push and deploy ${u.id}: ${u.title}`,
+      kind: 'ship',
+      why: `${u.id} is approved and merged into ${config.main_branch}${f.sha ? ` (${f.sha})` : ''}. Agents never push or deploy.`,
+      steps: [`Read the release notes: ${s().releases[u.id]?.notes ?? s().epics[u.id]?.notes}`, `Push: \`${push}\``, ...(config.deploy?.length ? config.deploy.map(String) : ['Deploy it the way this project deploys (e.g. Vercel, your cloud). Ask the lead to write the steps into docs/deploy.md.']), 'Mark this done and tell the team in #general.'],
+    });
+    return { ok: true, status: 'shipped', help: help.id };
+  }
+  function writeReleaseNotes(id, f = {}) {
+    const u = unit(id);
+    const ts = unitTickets(u);
+    const ids = new Set(ts.map((t) => t.id));
+    const decs = s().decisions.filter((d) => d.ticket && ids.has(String(d.ticket).toUpperCase()));
+    const help = Object.values(s().help).filter((h) => h.tickets.some((x) => ids.has(x)));
+    const date = new Date().toISOString().slice(0, 10);
+    const rel = `.madcompany/releases/${u.id.toLowerCase()}.md`;
+    const lines = [
+      `# <a id="${u.id.toLowerCase()}"></a>${u.id}: ${u.title}`,
+      '',
+      `- **Status:** ${f.sha ? 'shipped' : 'approved'} · **Date:** ${date}${u.version ? ` · **Version:** ${u.version}` : ''}${f.tag ? ` · **Tag:** ${f.tag}` : ''}${f.sha ? ` · **Merged:** ${f.sha}` : ''}`,
+      u.goal ? `- **Goal:** ${u.goal}` : null,
+      `- **Branch:** ${unitBranch(u.id)} → ${config.main_branch}`,
+      '',
+      '## What changed',
+      '',
+      ...ts.map((t) => `- [${t.id}](../log/board.md#${t.id.toLowerCase()}) ${t.title}${t.kind !== 'task' ? ` (${t.kind})` : ''}`),
+      ...(decs.length ? ['', '## Decisions', '', ...decs.map((d) => `- [${d.id}](../log/decisions.md#${d.id.toLowerCase()}) ${d.title}`)] : []),
+      ...((u.reviews ?? []).length ? ['', '## Your reviews', '', ...u.reviews.map((r) => `- ${r.ts.slice(0, 10)} ${r.by}: ${r.verdict === 'approve' ? 'approved' : `changes — ${r.notes}`}`)] : []),
+      ...(help.length ? ['', '## Human help', '', ...help.map((h) => `- [${h.id}](../human-help.md#${h.id.toLowerCase()}) ${h.title} (${h.status})`)] : []),
+    ].filter((l) => l !== null);
+    ensureDir(path.join(paths.dir, 'releases'));
+    fs.writeFileSync(path.join(paths.root, rel), lines.join('\n') + '\n');
+    if (!f.sha) store.append('unit.status', 'cli', { id: u.id, status: 'approved', notes: rel });
+    return rel;
+  }
+
+  // ---------- Human help: what only a person can do ----------
+  const ENV_KEY = /^[A-Z][A-Z0-9_]{1,63}$/;
+  function requestHelp(as, f = {}) {
+    actor(as, { allowHuman: true, allowCli: true });
+    if (!f.title?.trim()) throw new McError('Human help needs a title, e.g. "Create a Stripe account and test API keys".');
+    const kind = HELP_KINDS[f.kind] ? f.kind : 'other';
+    const env = (f.env ?? []).map((k) => String(k).trim().toUpperCase());
+    for (const k of env) if (!ENV_KEY.test(k)) throw new McError(`"${k}" isn't an environment variable name (like STRIPE_SECRET_KEY).`);
+    const tickets = (f.tickets ?? []).map((x) => ticket(x).id);
+    const same = Object.values(s().help).find(
+      (h) => h.status === 'open' && (h.title.toLowerCase() === f.title.trim().toLowerCase() || (f.service && h.service && h.service.toLowerCase() === String(f.service).toLowerCase() && h.kind === kind)),
+    );
+    if (same) {
+      if (tickets.some((x) => !same.tickets.includes(x))) store.append('help.link', as, { id: same.id, tickets });
+      return { ok: true, id: same.id, existing: true, note: `Already asked as ${same.id}. Park your ticket on it with mc_block (blockedBy: ["${same.id}"]) if you can't continue.` };
+    }
+    const id = nextId('help', 'HELP');
+    store.append('help.request', as, {
+      id,
+      title: f.title.trim(),
+      kind,
+      service: f.service ? String(f.service) : null,
+      why: String(f.why ?? ''),
+      steps: (f.steps ?? []).map(String),
+      env,
+      tickets,
+      links: (f.links ?? []).map(String),
+      neededBy: f.neededBy ? String(f.neededBy) : null,
+    });
+    return { ok: true, id, note: `Filed ${id} in HQ → Human help. Keep going on mocks if you can; otherwise park your ticket with mc_block (blockedBy: ["${id}"]). It resumes when the human marks ${id} done.` };
+  }
+  /** Which of these keys have a value in the project's env files. Never returns the values. */
+  function envStatus(keys) {
+    const found = new Set();
+    for (const f of config.env_files) {
+      const abs = safeJoin(paths.root, f);
+      if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue;
+      for (const line of fs.readFileSync(abs, 'utf8').split('\n')) {
+        const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+        if (m && m[2].trim().replace(/^(['"])(.*)\1$/, '$2').trim()) found.add(m[1]);
+      }
+    }
+    return Object.fromEntries(keys.map((k) => [k, found.has(k)]));
+  }
+  function waitingOn(id) {
+    return Object.values(s().tickets).filter((t) => t.status === 'blocked' && t.blockedBy.includes(id)).map((t) => t.id);
+  }
+  function helpView() {
+    return Object.values(s().help)
+      .map((h) => ({ ...h, envSet: envStatus(h.env), waiting: waitingOn(h.id), kindLabel: HELP_KINDS[h.kind] }))
+      .sort((a, b) => (a.status === b.status ? Number(b.id.split('-')[1]) - Number(a.id.split('-')[1]) : a.status === 'open' ? -1 : 1));
+  }
+  function helpDone(as, id, f = {}) {
+    if (!isHuman(as)) throw new McError('Only a person can mark Human help done.');
+    const h = s().help[String(id).toUpperCase()];
+    if (!h) throw new McError(`No ${id}.`);
+    if (h.status !== 'open') throw new McError(`${h.id} is already ${h.status}.`);
+    const missing = Object.entries(envStatus(h.env)).filter(([, v]) => !v).map(([k]) => k);
+    if (missing.length && !f.force) throw new McError(`Not found in ${config.env_files.join(' or ')}: ${missing.join(', ')}. Add them there, or mark it done anyway.`);
+    store.append('help.done', as, { id: h.id, note: f.note ?? '' });
+    return { ok: true, canResume: Object.values(s().tickets).filter((t) => t.blockedBy.includes(h.id) && isReady(t)).map((t) => t.id) };
+  }
+  function helpCancel(as, id, reason) {
+    if (!isHuman(as) && as !== lead && as !== 'cli') throw new McError('Only the lead or a person can cancel Human help.');
+    const h = s().help[String(id).toUpperCase()];
+    if (!h) throw new McError(`No ${id}.`);
+    if (h.status !== 'open') throw new McError(`${h.id} is already ${h.status}.`);
+    store.append('help.cancel', as, { id: h.id, reason: reason ?? '' });
+    return { ok: true };
+  }
+
   // ---------- feedback & change requests ----------
   function feedback(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty comment.');
@@ -772,7 +990,8 @@ export function createCore({ store, config, paths }) {
   }
   function change(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty change request.');
-    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change' });
+    const u = f.unit ? unit(f.unit) : null;
+    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : {}) });
     post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — please post an impact check.` });
     return res;
   }
@@ -826,6 +1045,20 @@ export function createCore({ store, config, paths }) {
     env,
     integrationEnv,
     epicBranch: (id) => epicBranch(ticket(id)),
+    unitBranch,
+    unit: (id) => ({ ...unit(id), branch: unitBranch(unit(id).id), tickets: unitTickets(unit(id)).map(briefTicket) }),
+    units,
+    currentRelease,
+    planRelease,
+    readyForReview,
+    reviewUnit,
+    shipped,
+    requestHelp,
+    helpView,
+    helpDone,
+    helpCancel,
+    envStatus,
+    mode,
     ticket,
     feedback,
     change,

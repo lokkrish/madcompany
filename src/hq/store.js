@@ -10,11 +10,13 @@ import { EventEmitter } from 'node:events';
 export function emptyState() {
   return {
     seq: 0,
-    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0 },
+    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0, release: 0, help: 0 },
     minutes: [],
     links: [],
     workday: { state: 'off', since: null },
     epics: {},
+    releases: {},
+    help: {},
     tickets: {},
     messages: [],
     decisions: [],
@@ -51,8 +53,56 @@ export function applyEvent(s, ev) {
       break;
 
     case 'epic.upsert':
-      s.epics[d.id] = { ...(s.epics[d.id] ?? { id: d.id }), ...d };
+      s.epics[d.id] = { status: 'building', reviews: [], ...(s.epics[d.id] ?? { id: d.id }), ...d };
       break;
+
+    // releases (R1, R2…) are the delivery unit in release-based modes; epics in spec mode
+    case 'release.upsert': {
+      s.counters.release = Math.max(s.counters.release ?? 0, num(d.id.replace(/^R/i, '-')));
+      const old = s.releases[d.id];
+      s.releases[d.id] = { id: d.id, status: 'planned', reviews: [], created: ev.ts, notes: null, ...(old ?? {}), ...d };
+      break;
+    }
+    case 'unit.status': {
+      const u = s.releases[d.id] ?? s.epics[d.id];
+      if (u) Object.assign(u, { status: d.status, statusAt: ev.ts, ...(d.notes ? { notes: d.notes } : {}) });
+      break;
+    }
+    case 'unit.review': {
+      const u = s.releases[d.id] ?? s.epics[d.id];
+      if (u) {
+        (u.reviews ??= []).push({ by: ev.by, ts: ev.ts, verdict: d.verdict, notes: d.notes ?? '' });
+        u.status = d.verdict === 'approve' ? 'approved' : 'building';
+        u.statusAt = ev.ts;
+      }
+      break;
+    }
+
+    // Human help: things only a person can do (accounts, keys, deploys, payments…)
+    case 'help.request':
+      s.counters.help = Math.max(s.counters.help ?? 0, num(d.id));
+      s.help[d.id] = { steps: [], env: [], tickets: [], links: [], ...d, status: 'open', by: ev.by, ts: ev.ts };
+      break;
+    case 'help.link': {
+      const h = s.help[d.id];
+      if (h) for (const x of d.tickets ?? []) if (!h.tickets.includes(x)) h.tickets.push(x);
+      break;
+    }
+    case 'help.done': {
+      const h = s.help[d.id];
+      if (h) Object.assign(h, { status: 'done', doneBy: ev.by, doneAt: ev.ts, note: d.note ?? '' });
+      break;
+    }
+    case 'help.cancel': {
+      const h = s.help[d.id];
+      if (h) Object.assign(h, { status: 'cancelled', doneBy: ev.by, doneAt: ev.ts, note: d.reason ?? '' });
+      break;
+    }
+    case 'help.reopen': {
+      const h = s.help[d.id];
+      if (h) Object.assign(h, { status: 'open', note: d.reason ?? '' });
+      break;
+    }
 
     case 'ticket.create':
       s.counters.ticket = Math.max(s.counters.ticket, num(d.id));
@@ -60,6 +110,7 @@ export function applyEvent(s, ev) {
         id: d.id,
         title: d.title,
         epic: d.epic ?? null,
+        release: d.release ?? null,
         body: d.body ?? '',
         domain: d.domain ?? null,
         deps: d.deps ?? [],
@@ -82,7 +133,7 @@ export function applyEvent(s, ev) {
       };
       break;
     case 'ticket.update':
-      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'refs']) if (k in d.fields) t[k] = d.fields[k];
+      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs']) if (k in d.fields) t[k] = d.fields[k];
       break;
     case 'ticket.assign':
       if (t) t.assignee = d.agent;
@@ -267,6 +318,12 @@ export function describeEvent(ev) {
     case 'team.remove': return `removed ${d.id} from the team`;
     case 'minutes.add': return `wrote minutes ${d.id}: ${d.title}`;
     case 'link.add': return `saved a link: ${d.title}`;
+    case 'release.upsert': return `planned ${d.id}${d.title ? `: ${d.title}` : ''}`;
+    case 'unit.status': return `${d.id} → ${d.status}`;
+    case 'unit.review': return d.verdict === 'approve' ? `approved ${d.id}` : `asked for changes to ${d.id}: ${clip(d.notes ?? '')}`;
+    case 'help.request': return `needs human help ${d.id}: ${clip(d.title)}`;
+    case 'help.done': return `did ${d.id}${d.note ? `: ${clip(d.note)}` : ''}`;
+    case 'help.cancel': return `cancelled ${d.id}`;
     default: return null;
   }
 }

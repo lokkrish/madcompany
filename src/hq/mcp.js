@@ -45,7 +45,7 @@ export function buildMcpServer({ core, notices, registry, version }) {
   tool(
     'mc_block',
     'Park a ticket you cannot finish because something else must happen first. Saves a checkpoint so you (or someone) can resume later. Commit your work in progress first.',
-    { as, id, blockedBy: z.array(z.string()).describe('Ticket or question IDs'), done: z.string(), next: z.string().describe('The exact next step when resuming'), files: list('Files touched'), questions: list('Open questions') },
+    { as, id, blockedBy: z.array(z.string()).describe('Ticket, question or HELP IDs'), done: z.string(), next: z.string().describe('The exact next step when resuming'), files: list('Files touched'), questions: list('Open questions') },
     ({ as, id, ...f }) => core.block(as, id, f),
   );
   tool('mc_checkpoint', 'Save a checkpoint without parking (e.g. before End day).', { as, id, done: z.string(), next: z.string(), files: list('Files touched') }, ({ as, id, ...f }) => core.checkpoint(as, id, f));
@@ -136,6 +136,24 @@ export function buildMcpServer({ core, notices, registry, version }) {
     ({ as, ...f }) => core.addLink(as, f),
   );
   tool('mc_env', 'Your own ports and database name, so you never collide with teammates.', { as }, ({ as }) => core.env(as));
+  tool(
+    'mc_human_help',
+    'Ask the human to do something only a person can do: create an account, get an API key or secret, set up a service (OAuth app, webhook, DNS, email domain), pay for something, push/deploy/publish, grant access or provide real data. It shows in HQ → Human help with your steps. Keep working on mocks; park your ticket on the HELP ID only if you truly cannot continue.',
+    {
+      as,
+      title: z.string().describe('What the human should do, e.g. "Create a Stripe account and test API keys"'),
+      kind: z.enum(['account', 'secret', 'setup', 'money', 'ship', 'access', 'other']),
+      service: z.string().optional().describe('e.g. Stripe, Twilio, Apple Developer, Vercel'),
+      why: z.string().describe('One line: which feature needs it and when'),
+      steps: z.array(z.string()).describe('Exact steps with links, e.g. "Open https://dashboard.stripe.com/register", "Developers → API keys → copy the test secret key", "Add STRIPE_SECRET_KEY=… to .env"'),
+      env: list('Environment variable names the human should add to .env, e.g. STRIPE_SECRET_KEY (names only, never values)'),
+      tickets: list('Tickets that need it'),
+      links: list('Docs or dashboards'),
+      neededBy: z.string().optional().describe('Release or epic that needs it, e.g. R2'),
+    },
+    ({ as, ...f }) => core.requestHelp(as, f),
+  );
+  tool('mc_human_help_list', 'Human help items and whether each needed .env key has been added (names only, never values).', { as }, () => ({ items: core.helpView().map(({ id, title, kind, status, envSet, tickets, waiting, note }) => ({ id, title, kind, status, envSet, tickets, waiting, note })) }));
 
   // --- lead only ---
   tool('mc_start_day', 'Lead: start the workday and get a briefing.', { as }, ({ as }) => core.startDay(as));
@@ -147,7 +165,7 @@ export function buildMcpServer({ core, notices, registry, version }) {
     async ({ as, seconds }) => {
       if (as !== cfg.leadId) throw new McError('Only the lead waits for notices.');
       const got = await notices.wait((seconds ?? cfg.wait_seconds) * 1000);
-      return { notices: got.map(({ kind, text, ticket, agent, q }) => ({ kind, text, ticket, agent, q })), workday: core.store.state.workday.state };
+      return { notices: got.map(({ kind, text, ticket, agent, q, help, unit }) => ({ kind, text, ticket, agent, q, help, unit })), workday: core.store.state.workday.state };
     },
   );
   tool(
@@ -156,7 +174,8 @@ export function buildMcpServer({ core, notices, registry, version }) {
     {
       as,
       title: z.string(),
-      epic: z.string().optional().describe('e.g. E1'),
+      epic: z.string().optional().describe('Spec mode: e.g. E1'),
+      release: z.string().optional().describe('Release modes: e.g. R1 (defaults to the current release)'),
       body: z.string().optional(),
       domain: z.string().optional(),
       deps: list('Ticket IDs that must be done first'),
@@ -168,9 +187,21 @@ export function buildMcpServer({ core, notices, registry, version }) {
   );
   tool(
     'mc_update_ticket',
-    'Lead: change a ticket\'s title, body, domain, deps, ui, epic or refs.',
-    { as, id, title: z.string().optional(), body: z.string().optional(), domain: z.string().optional(), deps: list('New dependency list'), ui: z.boolean().optional(), epic: z.string().optional(), refs: list('Refs') },
+    'Lead: change a ticket\'s title, body, domain, deps, ui, epic, release or refs.',
+    { as, id, title: z.string().optional(), body: z.string().optional(), domain: z.string().optional(), deps: list('New dependency list'), ui: z.boolean().optional(), epic: z.string().optional(), release: z.string().optional(), refs: list('Refs') },
     ({ as, id, ...fields }) => core.updateTicket(as, id, Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))),
+  );
+  tool(
+    'mc_release',
+    'Lead: plan a release (R1, R2…) in release-based modes, or update one (pass id). A release has a goal the human can see or do at the end of it. New tickets join the current release automatically.',
+    { as, id: z.string().optional().describe('Existing release to update, e.g. R2'), title: z.string().optional(), goal: z.string().optional(), version: z.string().optional().describe('e.g. v0.1.0; used as the git tag when it ships') },
+    ({ as, ...f }) => core.planRelease(as, f),
+  );
+  tool(
+    'mc_ready_for_review',
+    'Lead: every ticket in a release or epic is done and merged; ask the human to review it in HQ. They approve it (then run npx madcompany ship <id>) or ask for changes (a change ticket appears in it).',
+    { as, unit: z.string().describe('e.g. R1 or E2') },
+    ({ as, unit }) => core.readyForReview(as, unit),
   );
   tool('mc_assign', 'Lead: assign a ticket to an agent.', { as, id, agent: z.string() }, ({ as, id, agent }) => core.assign(as, id, agent));
   tool('mc_reopen', 'Lead: reopen a ticket (e.g. after a failed merge or a change request).', { as, id, reason: z.string() }, ({ as, id, reason }) => core.reopen(as, id, reason));

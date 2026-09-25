@@ -10,6 +10,20 @@ project:
 owner: You            # how HQ refers to you
 max_parallel: 3       # agents working at the same time (your Claude plan's limits are shared)
 
+# How the project is built (npx madcompany mode <name> to switch):
+#   ui          UI-driven: clickable screens first, then logic, release by release
+#   mvp         MVP-driven: the thinnest working slice first (APIs, CLIs, bots), release by release
+#   ui-mvp      UI-MVP: MVP screens signed off, then the working MVP, release by release
+#   brownfield  an existing codebase: scan it, then ship changes in small releases
+#   spec        spec-driven: full BMad planning, epic by epic
+mode: ui-mvp
+main_branch: main     # approved releases are merged here by "npx madcompany ship"
+
+# Your deploy steps. After a release ships, they become a Human help item for you.
+deploy:
+  # - Push main; Vercel deploys the web app
+  # - eas build --platform all && eas submit
+
 # Commands every ticket must pass before review, and again after each merge.
 checks:
   # - npm run typecheck
@@ -27,6 +41,7 @@ limits:
   memory_chars: 8000  # each memory file must stay under this (forces summarising)
 
 allow_push: false     # agents never push unless you set this to true
+env_files: [.env, .env.local]   # where HQ checks that keys from Human help were added (never reads values)
 
 library:
   sessions: true      # show your Claude Code conversations in HQ → Library

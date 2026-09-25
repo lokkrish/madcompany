@@ -116,8 +116,11 @@ test('demo project and CLI commands work end to end', async () => {
   const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-demo-')), 'demo');
   await createDemo(dir, { log: () => {} });
   const run = (...a) => execFileSync('node', [BIN, ...a], { cwd: dir, encoding: 'utf8' });
-  assert.match(run('status'), /Tiny Tasks · workday on/);
+  assert.match(run('status'), /Tiny Tasks · UI-MVP · R2 Working MVP \(building\) · workday on/);
   assert.match(run('env', 'arjun'), /DATABASE_NAME=mc_arjun/);
+  assert.match(run('mode'), /UI-MVP \(ui-mvp\): works in releases[\s\S]*\/mc-plan-release/);
+  assert.match(run('mode', 'mvp'), /Mode set to mvp/);
+  assert.match(run('scan'), /Folders/);
   assert.match(run('ids'), /IDs →/);
   const refs = spawnSync('node', [BIN, 'refs', 'check'], { cwd: dir, encoding: 'utf8' });
   assert.equal(refs.status, 0, refs.stdout);

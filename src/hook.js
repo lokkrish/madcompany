@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const ASK = 'This needs the human. Park the ticket (mc_block) and ask the lead with mc_ask.';
+const ASK = 'Only the human can do this. If it is really needed, file it with mc_human_help (exact steps, .env key names), keep going on a mock, and park the ticket on the HELP ID (mc_block) only if you are stuck.';
 
 const RULES = [
   [/\bgit\s+push\b[^\n;&|]*(\s(-f|--force|--force-with-lease|--mirror|--delete)\b|\s\+\S)/, 'Force-pushing or deleting remote branches rewrites shared history.'],
