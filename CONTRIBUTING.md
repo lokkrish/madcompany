@@ -27,6 +27,8 @@ For maintainers. Releases are published from GitHub Actions (`.github/workflows/
 
 The `release` workflow then checks that the tag, `package.json` and `CHANGELOG.md` agree and that the tag is on `main`, runs the tests, publishes to npm and creates the GitHub Release with that changelog section as its notes. A prerelease such as `1.2.0-beta.1` goes to npm's `next` tag, so `npx madcompany` keeps installing the last stable version.
 
-If a release fails, fix the cause and run it again from **Actions → release → Run workflow** with the tag. A version that's already on npm is never published twice.
+You can also release from the browser: after step 1 and a commit that bumps the version in `package.json` and `package-lock.json`, open **Actions → release → Run workflow** and enter the new tag. It tags the head of `main` (or the commit you give) once the tests pass.
+
+If a release fails, fix the cause and run it again the same way with the tag. A version that's already on npm is never published twice.
 
 **One-time setup:** npm has to trust the workflow. On npmjs.com, open the package's **Settings → Trusted Publisher**, choose **GitHub Actions** and enter user `lokkrish`, repository `madcompany`, workflow `release.yml`, with no environment. Then, under **Publishing access**, choose **Require two-factor authentication and disallow tokens**, so only the workflow (or a maintainer with 2FA) can publish.

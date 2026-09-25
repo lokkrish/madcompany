@@ -6,8 +6,9 @@ name: release
 # One-time setup on npmjs.com: madcompany → Settings → Trusted Publisher → GitHub Actions,
 # user "lokkrish", repository "madcompany", workflow "release.yml", environment left empty.
 #
-# Run it by hand (Actions → release → Run workflow) with an existing tag to retry a release.
-# A version that's already on npm is never published again; its GitHub Release is updated.
+# It can also run by hand (Actions → release → Run workflow): with a new tag it tags the
+# head of main (or the commit you give) and releases it; with an existing tag it retries
+# that release. A version that's already on npm is never published again.
 on:
   push:
     tags: ['v*']
@@ -16,8 +17,11 @@ on:
       tag:
         description: Version tag to release, e.g. v0.2.0
         required: true
+      commit:
+        description: Only for a new tag, the commit on main to tag (default, the head of main)
+        required: false
 permissions:
-  contents: write # create the GitHub Release
+  contents: write # create the tag and the GitHub Release
   id-token: write # prove to npm that this workflow is the one publishing
 concurrency:
   group: release
@@ -32,17 +36,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.tag || github.ref_name }}
-          fetch-depth: 0
+          fetch-depth: 0 # all branches and tags, to find the commit and check it's on main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - name: Check the tag, package.json and CHANGELOG.md agree
         id: version
+        env:
+          COMMIT: ${{ inputs.commit }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$TAG is not a version tag like v1.2.3"; exit 1; }
-          git merge-base --is-ancestor HEAD "origin/$MAIN" || { echo "::error::$TAG is not on $MAIN; only commits on $MAIN are released"; exit 1; }
+          [[ -z "$COMMIT" || "$COMMIT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "::error::$COMMIT is not a commit hash"; exit 1; }
+          new_tag=false
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            sha=$(git rev-parse "$TAG^{commit}")
+            [[ -z "$COMMIT" || "$sha" == "$COMMIT"* ]] || { echo "::error::$TAG already exists, on $sha"; exit 1; }
+          else
+            # a new tag (only possible when run by hand) is created after the tests pass
+            sha=$(git rev-parse --verify -q "${COMMIT:-origin/$MAIN}^{commit}") || { echo "::error::No commit $COMMIT"; exit 1; }
+            new_tag=true
+          fi
+          git merge-base --is-ancestor "$sha" "origin/$MAIN" || { echo "::error::$sha is not on $MAIN; only commits on $MAIN are released"; exit 1; }
+          git checkout -q --detach "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
           version=$(node -p 'require("./package.json").version')
           [ "v$version" = "$TAG" ] || { echo "::error::package.json says $version but the tag is $TAG"; exit 1; }
           # the notes are the "## <version> (date)" section of CHANGELOG.md
@@ -54,6 +72,12 @@ jobs:
       - run: npm ci
       - run: git config --global user.email ci@example.com && git config --global user.name CI
       - run: npm run test:ci
+      - name: Create the tag
+        if: steps.version.outputs.new_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent
       - name: Publish to npm
         env:
           VERSION: ${{ steps.version.outputs.version }}
