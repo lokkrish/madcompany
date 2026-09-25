@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McError, loadConfig } from '../config.js';
-import { ensureDir, isHiddenPath, safeJoin } from '../paths.js';
+import { ensureDir, isHiddenPath, safeJoin, insideRoot as insideProject } from '../paths.js';
 import { buildRegistry, hqEntries, writeRegistry } from '../refs/ids.js';
 import { Store, describeEvent } from './store.js';
 import { createCore } from './core.js';
@@ -356,15 +356,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
     };
   }
 
-  function insideRoot(abs) {
-    try {
-      const real = fs.realpathSync(abs);
-      const base = fs.realpathSync(paths.root);
-      return real === base || real.startsWith(base + path.sep);
-    } catch {
-      return false;
-    }
-  }
+  const insideRoot = (abs) => insideProject(paths.root, abs);
 
   function fileView(res, rel) {
     rel = rel.replace(/^\/+/, '');

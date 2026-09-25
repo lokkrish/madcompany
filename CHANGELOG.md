@@ -26,4 +26,5 @@ First version.
 - MCP servers and plugins: HQ → Tools lists servers, plugins, skills and plugin agents; each agent learns its own servers by role; `mc_tools`; the safety hook lets read-only MCP tools run unattended and sends pushes, deploys, payments, deletes and remote writes to Human help; `tools.allow` / `tools.human` in `team.yaml`; server suggestions for your stack; a call log without inputs
 - GitHub Pages site (`site/`, `npm run site`) with the overview, the five workflows and a command reference
 - `madcompany demo` for a sample project
+- Fix: Library search and the reference scanner no longer read through symlinks that lead outside the project, and a broken link no longer crashes HQ's views (found by the first macOS CI run)
 - File formats: `.madcompany/team.yaml`, `log/events.jsonl` (append-only; readable copies in `log/*.md`), `ids.json`, `agents/<id>/{identity,work,comms}.md`

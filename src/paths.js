@@ -60,6 +60,21 @@ export function safeJoin(root, rel) {
   return target;
 }
 
+/**
+ * True if abs, after following symlinks, is inside root. A link that points
+ * outside the project (or nowhere) is treated as not there, so HQ never
+ * reads, lists or serves files beyond the project.
+ */
+export function insideRoot(root, abs) {
+  try {
+    const real = fs.realpathSync(abs);
+    const base = fs.realpathSync(root);
+    return real === base || real.startsWith(base + path.sep);
+  } catch {
+    return false;
+  }
+}
+
 /** Files HQ never shows or serves: secrets and git internals. */
 export function isHiddenPath(rel) {
   const parts = rel.split(/[\\/]/);

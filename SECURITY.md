@@ -8,7 +8,7 @@ madcompany runs AI agents unattended on your machine, so security issues matter.
 - **HQ** binds to 127.0.0.1, checks the Host header (DNS rebinding) and rejects cross-origin requests. The only cross-origin endpoint is the feedback widget's, and it only accepts localhost origins.
 - **Shared HQ** (`hq --share`): everyone signs in with a personal link. Tokens are 256-bit random values stored only as SHA-256 hashes in `.madcompany/run/access.json` (mode 600); a new link replaces the old one and removing a person revokes it. The session cookie is HttpOnly and SameSite=Strict, writes must come from HQ's own origin, and each person's role (owner, member, viewer) is checked on every request. The MCP server, CLI API and feedback widget answer only from the machine HQ runs on.
 - **Credentials:** madcompany never reads, stores or forwards Claude or Codex credentials. Agents run inside your own host session.
-- **Files:** HQ's file viewer refuses paths outside the project, `.git`, `node_modules` and `.env` files, and escapes raw HTML in markdown.
+- **Files:** HQ's file viewer refuses paths outside the project, `.git`, `node_modules` and `.env` files, and escapes raw HTML in markdown. Links (symlinks) that lead outside the project are never served, listed in the Library, searched or scanned for references.
 
 ## Known limits
 

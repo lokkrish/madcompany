@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isHiddenPath } from '../paths.js';
+import { isHiddenPath, insideRoot } from '../paths.js';
 import { ARTIFACT_URL } from '../hook.js';
 
 /**
@@ -49,7 +49,7 @@ function walk(root, dir, out) {
     const rel = dir ? `${dir}/${e.name}` : e.name;
     if (e.isDirectory()) {
       if (!SKIP.has(e.name)) walk(root, rel, out);
-    } else if (SHOWN.test(e.name) && !isHiddenPath(rel)) {
+    } else if (SHOWN.test(e.name) && !isHiddenPath(rel) && (!e.isSymbolicLink() || insideRoot(root, path.join(root, rel)))) {
       out.push(rel);
     }
   }
@@ -258,9 +258,16 @@ export function createLibrary({ paths, config, store }) {
     } catch {
       return '';
     }
+    // search and link scanning never read through a link to outside the project
+    if (!insideRoot(root, abs)) return '';
     const hit = cache.get(rel);
     if (hit && hit.mtime === st.mtimeMs) return hit.text;
-    let text = st.size > 2 * 1024 * 1024 ? '' : fs.readFileSync(abs, 'utf8');
+    let text = '';
+    try {
+      text = st.size > 2 * 1024 * 1024 ? '' : fs.readFileSync(abs, 'utf8');
+    } catch {
+      return '';
+    }
     if (/\.html?$/i.test(rel)) text = text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
     cache.set(rel, { mtime: st.mtimeMs, text });
     return text;

@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -76,8 +77,15 @@ test('security: foreign origins and hosts are refused; secrets and traversal are
   assert.equal(cli.status, 403, 'CLI endpoint needs the CLI header');
   assert.equal((await fetch(`${base}/api/file?path=.env`)).status, 403);
   assert.equal((await fetch(`${base}/api/file?path=../../etc/passwd`)).status, 403);
-  fs.symlinkSync('/etc/hostname', path.join(ctx.root, 'docs', 'escape.md'));
+  // a link inside docs/ to a file outside the project: never served, listed or searched
+  const outside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-outside-')), 'secret.md');
+  fs.writeFileSync(outside, '# Outside\n\nOUTSIDE-SECRET-42 <a id="fr999"></a>FR999\n');
+  fs.symlinkSync(outside, path.join(ctx.root, 'docs', 'escape.md'));
+  fs.symlinkSync(path.join(ctx.root, 'nowhere.md'), path.join(ctx.root, 'docs', 'dangling.md'));
   assert.equal((await fetch(`${base}/api/file?path=docs/escape.md`)).status, 403);
+  assert.equal((await (await fetch(`${base}/api/search?q=OUTSIDE-SECRET-42`)).json()).results.length, 0);
+  assert.equal((await (await fetch(`${base}/api/refresh-ids`, { method: 'POST', headers: { 'x-madcompany-cli': '1' } })).json()).count >= 0, true, 'a dangling link does not break the registry');
+  assert.ok(!('fr999' in (await (await fetch(`${base}/api/ids`)).json())));
   // a DNS-rebinding style Host header
   const res = await new Promise((resolve) => {
     import('node:http').then(({ request }) => {

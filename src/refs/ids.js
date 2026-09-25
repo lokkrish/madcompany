@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { insideRoot } from '../paths.js';
 
 /**
  * Stable IDs → where they are defined. "FR-012", "FR12" and "fr12" are the
@@ -34,7 +35,7 @@ export function listMarkdown(root, dirs) {
     for (const e of entries) {
       if (e.isDirectory()) {
         if (!SKIP_DIRS.has(e.name)) walk(path.join(abs, e.name));
-      } else if (e.name.endsWith('.md')) {
+      } else if (e.name.endsWith('.md') && (!e.isSymbolicLink() || insideRoot(root, path.join(abs, e.name)))) {
         out.push(path.relative(root, path.join(abs, e.name)).split(path.sep).join('/'));
       }
     }
@@ -65,7 +66,12 @@ export function cleanTitle(line) {
 
 export function scanFile(root, rel) {
   const entries = [];
-  const text = fs.readFileSync(path.join(root, rel), 'utf8');
+  let text = '';
+  try {
+    text = fs.readFileSync(path.join(root, rel), 'utf8');
+  } catch {
+    return entries; // removed or unreadable since it was listed
+  }
   text.split('\n').forEach((line, i) => {
     for (const m of line.matchAll(ANCHOR)) {
       entries.push({ key: m[1], file: rel, anchor: m[1], line: i + 1, title: cleanTitle(line) });
