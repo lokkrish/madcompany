@@ -7,8 +7,8 @@ name: release
 # user "lokkrish", repository "madcompany", workflow "release.yml", environment left empty.
 #
 # It can also run by hand (Actions → release → Run workflow): with a new tag it tags the
-# head of main (or the commit you give) and releases it; with an existing tag it retries
-# that release. A version that's already on npm is never published again.
+# head of main and releases it; with an existing tag it retries that release.
+# A version that's already on npm is never published again.
 on:
   push:
     tags: ['v*']
@@ -17,9 +17,6 @@ on:
       tag:
         description: Version tag to release, e.g. v0.2.0
         required: true
-      commit:
-        description: Only for a new tag, the commit on main to tag (default, the head of main)
-        required: false
 permissions:
   contents: write # create the tag and the GitHub Release
   id-token: write # prove to npm that this workflow is the one publishing
@@ -43,18 +40,14 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Check the tag, package.json and CHANGELOG.md agree
         id: version
-        env:
-          COMMIT: ${{ inputs.commit }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$TAG is not a version tag like v1.2.3"; exit 1; }
-          [[ -z "$COMMIT" || "$COMMIT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "::error::$COMMIT is not a commit hash"; exit 1; }
           new_tag=false
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             sha=$(git rev-parse "$TAG^{commit}")
-            [[ -z "$COMMIT" || "$sha" == "$COMMIT"* ]] || { echo "::error::$TAG already exists, on $sha"; exit 1; }
           else
-            # a new tag (only possible when run by hand) is created after the tests pass
-            sha=$(git rev-parse --verify -q "${COMMIT:-origin/$MAIN}^{commit}") || { echo "::error::No commit $COMMIT"; exit 1; }
+            # run by hand with a new tag: release the head of main, tagged once the tests pass
+            sha=$(git rev-parse "origin/$MAIN")
             new_tag=true
           fi
           git merge-base --is-ancestor "$sha" "origin/$MAIN" || { echo "::error::$sha is not on $MAIN; only commits on $MAIN are released"; exit 1; }
@@ -77,7 +70,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.version.outputs.sha }}
-        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent || {
+            echo "::error::GitHub didn't let this workflow create $TAG. Push the tag yourself instead: git tag $TAG $SHA && git push origin $TAG"
+            exit 1
+          }
       - name: Publish to npm
         env:
           VERSION: ${{ steps.version.outputs.version }}

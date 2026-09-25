@@ -27,7 +27,7 @@ For maintainers. Releases are published from GitHub Actions (`.github/workflows/
 
 The `release` workflow then checks that the tag, `package.json` and `CHANGELOG.md` agree and that the tag is on `main`, runs the tests, publishes to npm and creates the GitHub Release with that changelog section as its notes. A prerelease such as `1.2.0-beta.1` goes to npm's `next` tag, so `npx madcompany` keeps installing the last stable version.
 
-You can also release from the browser: after step 1 and a commit that bumps the version in `package.json` and `package-lock.json`, open **Actions → release → Run workflow** and enter the new tag. It tags the head of `main` (or the commit you give) once the tests pass.
+You can also release from the browser: after step 1 and a commit that bumps the version in `package.json` and `package-lock.json`, open **Actions → release → Run workflow** and enter the new tag. It tags the head of `main` once the tests pass.
 
 If a release fails, fix the cause and run it again the same way with the tag. A version that's already on npm is never published twice.
 
