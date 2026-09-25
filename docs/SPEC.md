@@ -1,12 +1,14 @@
 # madcompany: Spec
 
-**Status:** v0.4, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
+**Status:** v0.5, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
 **Name:** madcompany (earlier: "BMAD Company", then "Storyfront"; see [OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
 ## TL;DR
 
 - Keep BMAD for planning. Replace its story-by-story build loop with a team of AI agents working in parallel.
+- Five ways to build ([§20](#20-development-modes-and-releases)): UI-driven, MVP-driven, UI-MVP and brownfield deliver **release by release**; spec-driven delivers epic by epic.
+- Everything only a person can do (accounts, keys, payments, pushes, deploys) is listed in **Human help** with exact steps ([§21](#21-human-help)).
 - You're involved in three places: UI/UX sessions, escalations the team can't resolve, and the end-of-epic demo.
 - Everything the team does is visible in **HQ**, a local app combining Teams-style chat, a Jira-style board, a decisions log and a dashboard.
 - Every reference (requirement, ticket, decision, file) is a clickable link.
@@ -42,30 +44,34 @@
 
 ## 3. How a project runs
 
+How much you plan, and what the team delivers in, depends on the project's mode ([§20](#20-development-modes-and-releases)). The loop is the same in all of them; "release" below reads "epic" in spec-driven mode.
+
 ```mermaid
 flowchart LR
-  A[Plan<br/>BMAD as today] --> B[Staff the team<br/>you pick roles]
-  B --> C{Epic has UI?}
+  A[Plan<br/>per mode] --> B[Staff the team<br/>you pick roles]
+  B --> P[Plan a release<br/>one goal]
+  P --> C{Has UI?}
   C -- yes --> D[UI sprint<br/>you + UX agent]
   C -- no --> E[MVP slice<br/>thinnest working path]
   D --> F[Design packs<br/>contracts agreed]
   E --> F
   F --> G[Parallel build<br/>you're out]
-  G --> H[Epic demo<br/>you click through]
-  H --> I[Deploy backend<br/>to cloud]
-  I --> C
+  G --> H[Your review<br/>approve or changes]
+  H --> I[Ship<br/>main + tag; you push and deploy]
+  I --> P
 ```
 
 | Step | Who | You involved? | Output |
 |---|---|---|---|
 | Plan | BMAD agents (analyst, PM, architect, UX) | Yes, as in BMAD today | PRD, architecture and epics, with linkable IDs |
 | Staff | Lead + you | Yes: pick the roster | `team.yaml` and an identity file per agent |
-| UI sprint (per epic) | UX + frontend + you | Yes: your main session | Clickable prototype with fake data |
-| MVP slice (epics without UI) | Team | Review the result | A working thin path, shown in an API explorer or a CLI run |
+| Plan a release | Lead + you | Yes: confirm one goal | A release (R1…) with tickets, and Human help filed early |
+| UI sprint (per release or epic) | UX + frontend + you | Yes: your main session | Clickable prototype with fake data |
+| MVP slice (without UI) | Team | Review the result | A working thin path, shown in an API explorer or a CLI run |
 | Design packs | Developers | No | Sketches, contracts and schema: draft → agreed → frozen |
 | Build | Whole team, in parallel | Only for escalations | Merged tickets and previews |
-| Epic demo | You | Yes | Go, or a change list |
-| Deploy | Devops agent | Approve | Backend running in the cloud, app pointed at it |
+| Review | You | Yes | Approved, or change tickets in the same release |
+| Ship | Lead, then you | Push and deploy (Human help) | Merged into main, tagged, release notes |
 
 | ID | Requirement |
 |---|---|
@@ -217,7 +223,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | ID | Requirement |
 |---|---|
 | <a id="int-1"></a>INT-1 | Each third-party service sits behind an adapter with a `mock` and a `live` version, switched per service in `.env`. |
-| <a id="int-2"></a>INT-2 | `.madcompany/credentials-needed.md` lists each service you need to sign up for, the key it needs and the tickets that use it. Services stay mocked until MVP. |
+| <a id="int-2"></a>INT-2 | Each service you need to sign up for is a Human help item ([HUM-1](#hum-1)) with the steps, the keys it needs and the tickets that use it. Services stay mocked until you've added the keys. |
 | <a id="int-3"></a>INT-3 | After an epic demo, the backend and Postgres deploy to the project's cloud ([D2](#d2)), the web frontend deploys to Vercel if that was chosen, and the mobile app points at the cloud API. |
 
 ## 11. Workday and usage limits
@@ -333,7 +339,8 @@ In an app project:
   ids.json                  # reference registry            REF-2
   log/events.jsonl          # everything, append-only       HQ-8
   log/*.md, log/chat/       # readable copies               HQ-8
-  credentials-needed.md     #                               INT-2
+  human-help.md             # what only you can do          HUM-1, INT-2
+  releases/r<n>.md          # release notes                 SHIP-5
   bin/hook.mjs              # safety hook                   SEC-6, SEC-7, DAY-3
   run/access.json           # sign-in link hashes           SEC-9
 .claude/agents/mc-<id>.md   # one subagent per member       TEAM-2, TEAM-9
@@ -344,9 +351,9 @@ docs/design/<area>/         # design packs                  TEAM-7
 
 In this repo: `src/hq/` (event store, rules, MCP tools, server), `src/roles.js` (role catalogue and templates), `src/auth.js` (sign-in links), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-**In v0:** FLOW-1–5, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
+**In v0:** FLOW-1–5, FLOW-8 (as `/mc-scan`), MODE-1–4, SHIP-1–6, HUM-1–6, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
-**Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)), and the roadmap in [§19](#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
+**Not yet:** a deploy command ([FLOW-6](#flow-6), [INT-3](#int-3); today `ship` hands you a deploy checklist in Human help), importing in-progress BMad sprints ([FLOW-7](#flow-7)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)), and the roadmap in [§19](#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
 Checked with real Claude Code runs (a Sonnet lead with Haiku agents): a plain ticket took about 2 minutes and ~$0.5 of usage; a park → escalate → answer → resume → merge cycle took about 2.5 minutes and ~$0.7.
 
@@ -373,7 +380,43 @@ The roles exist ([TEAM-11](#team-11)); these are the processes a real company of
 |---|---|---|
 | <a id="rm-1"></a>RM-1 | QA depth | A test plan per epic, generated from its acceptance criteria. E2E suites that grow with each epic and a full regression run before the demo. Accessibility and performance checks (axe, Lighthouse) as gates, and screenshot comparison ([VIS-4](#vis-4)). |
 | <a id="rm-2"></a>RM-2 | Cost and retrospectives | Usage and time per ticket, agent and epic where the host reports it, plus rework rate (reopened tickets, review rounds). A retrospective at the end of each epic, saved as minutes ([HQ-12](#hq-12)), that also says which agent memories need fixing. |
-| <a id="rm-3"></a>RM-3 | Release management | A staging environment, release notes built from tickets and decisions, version tags, a deploy checklist and a rollback plan. Builds on [FLOW-6](#flow-6) and [INT-3](#int-3). |
+| <a id="rm-3"></a>RM-3 | Release management | Release notes, version tags and a deploy checklist are built ([SHIP-5](#ship-5), [SHIP-6](#ship-6)). Still missing: a staging environment and a rollback plan. Builds on [FLOW-6](#flow-6) and [INT-3](#int-3). |
 | <a id="rm-4"></a>RM-4 | Security review | The security engineer as a required second reviewer on auth, payments and personal-data tickets. Dependency audit and secret scanning in the checks, and a threat model per epic. |
 | <a id="rm-5"></a>RM-5 | Planning cadence | Priorities (P0 to P3), iterations sized by `max_parallel`, a roadmap view across epics, a risk register and a tech-debt list the lead grooms. |
 | <a id="rm-6"></a>RM-6 | Operations after MVP | Error tracking, logs and uptime checks behind adapters ([INT-1](#int-1)). Production errors become tickets, and incidents get short write-ups. |
+
+## 20. Development modes and releases
+
+Each project has a mode (`mode:` in `team.yaml`; `npx madcompany init --mode`, `npx madcompany mode`). The steps for each, as printed by `npx madcompany mode` and shown on the website, come from one place in the code (`src/modes.js`).
+
+| Mode | For | Plan with | Delivers | Release ladder |
+|---|---|---|---|---|
+| `ui` UI-driven | Apps where the screens are the product | Brief + UX | Releases | R1 clickable prototype → R2 working core flows → next features |
+| `mvp` MVP-driven | APIs, CLIs, bots, pipelines; smallest working thing first | Brief + MVP scope | Releases | R1 MVP on mocks → R2 real integrations → next features |
+| `ui-mvp` UI-MVP (default) | Most new apps | Brief + MVP scope + UX for those screens | Releases | R1 MVP screens → R2 working MVP → next features |
+| `brownfield` | An existing codebase | A codebase scan | Releases | R1 onboarding → change sets |
+| `spec` Spec-driven | Large or regulated products | Full BMad planning | Epics | Epic by epic |
+
+| ID | Requirement |
+|---|---|
+| <a id="mode-1"></a>MODE-1 | A project has one of five modes. It can be switched any time; the agents are regenerated with the new mode's guidance. Projects from before modes existed are spec-driven. |
+| <a id="mode-2"></a>MODE-2 | Every agent's file and the lead's daily briefing carry the mode's guidance, so the whole team works the same way. |
+| <a id="mode-3"></a>MODE-3 | `npx madcompany mode` prints the mode, its release ladder and every step with where to run it (terminal, Claude Code or HQ). |
+| <a id="mode-4"></a>MODE-4 | Brownfield starts with `/mc-scan`: `npx madcompany scan` reports the stack, check commands, folders, third-party services and env keys (without reading `.env`), and the lead writes a codebase map to `docs/design/codebase/` that the team follows ([FLOW-8](#flow-8)). |
+| <a id="ship-1"></a>SHIP-1 | In release-based modes, work is grouped into releases (R1, R2…). Each has one goal written as something you can see or do at the end of it, and optionally a version. `/mc-plan-release` proposes one release at a time for you to confirm. |
+| <a id="ship-2"></a>SHIP-2 | New tickets, feedback and change requests join the current release automatically. Tickets merge into `release/rN` (or `epic/N`), never straight into main. |
+| <a id="ship-3"></a>SHIP-3 | A release goes planned → building → your review → approved → shipped. The lead can only send it for review when every ticket in it is done. Only a person reviews it; approving is an owner's call, and anyone who can chat can ask for changes, which become a change ticket in the same release. |
+| <a id="ship-4"></a>SHIP-4 | `npx madcompany ship <R1\|E1>` merges an approved release or epic into main in your checkout (on main, with no uncommitted changes of yours), re-runs the checks if main moved since, and tags it with its version or id. |
+| <a id="ship-5"></a>SHIP-5 | Approving writes release notes to `.madcompany/releases/`: the goal, the tickets, the decisions made, your reviews and the Human help involved. |
+| <a id="ship-6"></a>SHIP-6 | Agents never push or deploy. After `ship`, pushing and your deploy steps (`deploy:` in `team.yaml`) arrive as a Human help item ([HUM-1](#hum-1)). |
+
+## 21. Human help
+
+| ID | Requirement |
+|---|---|
+| <a id="hum-1"></a>HUM-1 | Everything only a person can do is a Human help item (`HELP-n`) in HQ: accounts and sign-ups, keys and secrets, service setup, payments and purchases, pushes, deploys and publishing, access, real data and legal texts. It has a title, why, numbered steps with links, the `.env` key names, the tickets that need it and the release that needs it by. |
+| <a id="hum-2"></a>HUM-2 | Agents file items with `mc_human_help` instead of asking in chat. The safety hook's refusal ([SEC-7](#sec-7)) tells them to. The same request from two agents becomes one item. Planning (`/mc-plan-release`, `/mc-plan-epic`, `/mc-scan`) files them early, so you can do them while the team builds on mocks. |
+| <a id="hum-3"></a>HUM-3 | Agents keep working on mock adapters. Only a ticket that truly can't continue is parked on a `HELP-n` item, and it resumes when the item is done: the lead gets a notice to restart its agent. |
+| <a id="hum-4"></a>HUM-4 | HQ checks whether each listed key has a value in your env files (`env_files:`, default `.env` and `.env.local`). It never reads out, shows or sends a value. Marking an item done with a key still missing asks first. |
+| <a id="hum-5"></a>HUM-5 | Anyone who can chat can mark an item done with a note; owners can mark it not needed; you can add your own. The dashboard counts open items and how many are blocking work. |
+| <a id="hum-6"></a>HUM-6 | Items are also written to `.madcompany/human-help.md`, `HELP-n` is a clickable reference everywhere, and `npx madcompany status` lists what's open. |

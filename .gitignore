@@ -2,3 +2,4 @@ node_modules/
 .madcompany/run/
 .madcompany/worktrees/
 *.log
+_site/

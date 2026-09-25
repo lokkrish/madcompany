@@ -31,7 +31,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "hq": "node bin/madcompany.js hq"
+    "hq": "node bin/madcompany.js hq",
+    "site": "node site/build.mjs"
   },
   "keywords": [
     "claude-code",

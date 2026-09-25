@@ -19,5 +19,10 @@ First version.
 - Team templates: `staff --template small|medium|large` for a 5, 10 or 20-person company
 - Hire and remove agents from HQ's Team page, grouped by department
 - Multi-user HQ: `people:` in `team.yaml` with owner, member and viewer roles; `people add|link|remove|list`; `hq --share` with personal sign-in links (stored hashed, HttpOnly cookie); agents and the CLI stay local-only
+- Five development modes (`mode:` in `team.yaml`, `init --mode`, `madcompany mode`): UI-driven, MVP-driven, UI-MVP (default), brownfield and spec-driven
+- Releases (R1, R2…) for the release-based modes: `/mc-plan-release`, `release/rN` branches, review in HQ → Releases (approve or request changes), release notes, and `madcompany ship` to merge an approved release into main and tag it
+- Human help: everything only a person can do (accounts, keys, service setup, payments, push and deploy, access) in one HQ page with steps, `.env` key checks that never read values, and parked tickets that resume when an item is done; agents file items with `mc_human_help`
+- Brownfield onboarding: `madcompany scan` and `/mc-scan` write a codebase map and set the real checks
+- GitHub Pages site (`site/`, `npm run site`) with the overview, the five workflows and a command reference
 - `madcompany demo` for a sample project
 - File formats: `.madcompany/team.yaml`, `log/events.jsonl` (append-only; readable copies in `log/*.md`), `ids.json`, `agents/<id>/{identity,work,comms}.md`
