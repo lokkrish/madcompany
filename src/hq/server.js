@@ -30,6 +30,18 @@ export function createHq({ paths, port = 4317, quiet = false }) {
   const core = createCore({ store, config, paths });
   const notices = createNotices(core);
   const library = createLibrary({ paths, config, store });
+  // Claude artifacts published while HQ was off were queued by the hook
+  const pending = path.join(paths.run, 'pending-links.jsonl');
+  if (fs.existsSync(pending)) {
+    for (const line of fs.readFileSync(pending, 'utf8').split('\n')) {
+      try {
+        if (line.trim()) core.addLink('cli', JSON.parse(line));
+      } catch {
+        // skip a bad line
+      }
+    }
+    fs.rmSync(pending, { force: true });
+  }
   let fileRegistry = {};
   const refreshRegistry = () => {
     fileRegistry = buildRegistry(paths.root);

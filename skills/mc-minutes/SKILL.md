@@ -18,7 +18,7 @@ Summarise **this** conversation for the record, so the human can find it later i
    - `attendees`: e.g. `["you", "BMad PM agent"]`
    - `summary`: 2–4 plain sentences
    - `source`: the workflow or skills used, e.g. `BMad create-prd`
-3. Save each external URL that came up with `mc_link`, so it shows under Library → Links, with Claude artifacts listed first.
+3. Save each external URL that came up with `mc_link`, so it shows under Library → Links. (Claude artifacts published from this session are saved automatically.)
 4. Save any durable decision with `mc_decide` as well, so it's on the Decisions page.
 5. Reply with one line: the minutes ID (e.g. MOM-3), and that it's in HQ → Library → Meetings.
 

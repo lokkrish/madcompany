@@ -92,11 +92,68 @@ export function decide(input, { root }) {
   return null;
 }
 
-function main() {
+export const ARTIFACT_URL = /https:\/\/(?:claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]+|claude\.site\/artifacts\/[A-Za-z0-9-]+)/g;
+
+/**
+ * PostToolUse: when a session publishes a Claude artifact, the link is in the
+ * tool's result. Returns the links to save (title from what was published).
+ */
+export function artifactLinks(input) {
+  const tool = String(input.tool_name ?? '');
+  if (!/artifact/i.test(tool) || /comment|data/i.test(tool)) return [];
+  const args = input.tool_input ?? {};
+  if (args.action && args.action !== 'publish') return [];
+  const urls = new Set(JSON.stringify(input.tool_response ?? '').match(ARTIFACT_URL) ?? []);
+  if (typeof args.url === 'string') for (const u of args.url.match(ARTIFACT_URL) ?? []) urls.add(u);
+  const file = args.file_path ? path.basename(String(args.file_path)).replace(/\.[a-z]+$/i, '').replace(/[-_]+/g, ' ') : '';
+  const title = String(args.title || args.description || file || 'Claude artifact').slice(0, 140);
+  const note = `Published from Claude Code${input.session_id ? ` (session ${String(input.session_id).slice(0, 8)})` : ''}`;
+  return [...urls].map((url) => ({ url, title, note, kind: 'Claude artifact' }));
+}
+
+/** Save links to HQ if it's running, else queue them for HQ's next start. */
+async function saveLinks(root, links) {
+  if (!links.length) return;
+  let port = null;
+  try {
+    port = JSON.parse(fs.readFileSync(path.join(root, '.madcompany', 'run', 'hq.json'), 'utf8')).port;
+  } catch {
+    // HQ not running
+  }
+  if (port) {
+    try {
+      for (const l of links) {
+        const res = await fetch(`http://127.0.0.1:${port}/api/cli`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-madcompany-cli': '1' },
+          body: JSON.stringify({ op: 'addLink', args: ['cli', l] }),
+          signal: AbortSignal.timeout(1500),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      }
+      return;
+    } catch {
+      // fall through to the queue
+    }
+  }
+  const dir = path.join(root, '.madcompany', 'run');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(path.join(dir, 'pending-links.jsonl'), links.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
+async function main() {
   let input = {};
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
   } catch {
+    process.exit(0);
+  }
+  if (process.argv[2] === 'post-tool') {
+    try {
+      await saveLinks(findRoot(input.cwd || process.cwd()), artifactLinks(input));
+    } catch {
+      // never break the session because of a hook bug
+    }
     process.exit(0);
   }
   try {

@@ -29,6 +29,8 @@ before(async () => {
       line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Noted: roll-over in MVP, offline after.' }, { type: 'tool_use', name: 'Write', input: {} }] } }),
       line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } }),
       line({ type: 'assistant', isSidechain: true, message: { role: 'assistant', content: [{ type: 'text', text: 'subagent chatter' }] } }),
+      line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu_art', name: 'Artifact', input: { file_path: '/tmp/checkout-flow.html', description: 'Checkout flow prototype' } }] } }),
+      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_art', content: [{ type: 'text', text: 'Published: https://claude.ai/code/artifact/9c1d2e3f-aaaa-4bbb-8ccc-123456789abc (private)' }] }] } }),
       'not json',
     ].join('\n'),
   );
@@ -56,6 +58,7 @@ test('the Library sorts everything into planning-stage categories', async () => 
   const ux = cat(lib, 'ux');
   assert.equal(group(ux, 'UX design')[0].path, '_bmad-output/planning-artifacts/ux-design-specification.md');
   assert.equal(group(ux, 'Mockups')[0].title, 'Tiny Tasks: design directions');
+  assert.ok(group(ux, 'Claude artifacts').some((l) => l.title === 'Checkout flow prototype'), 'artifacts drawn in Claude show with the UI');
   assert.equal(group(ux, 'Screenshots').length, 2);
   const arch = cat(lib, 'architecture');
   assert.equal(group(arch, 'Architecture')[0].title, 'Architecture: Tiny Tasks');
@@ -65,7 +68,11 @@ test('the Library sorts everything into planning-stage categories', async () => 
   assert.deepEqual(meetings.groups.map((g) => g.label), ['Planning', 'UI sprints']);
   const links = cat(lib, 'links');
   assert.equal(links.groups[0].label, 'Claude artifacts', 'Claude artifacts come first');
-  assert.equal(links.groups[0].items.length, 2, 'one saved, one found in chat');
+  assert.equal(links.groups[0].items.length, 3, 'one saved, one found in chat, one published in a conversation');
+  const published = links.groups[0].items.find((l) => l.url.includes('9c1d2e3f'));
+  assert.equal(published.title, 'Checkout flow prototype');
+  assert.equal(published.sources[0].verb, 'Published in');
+  assert.match(published.sources[0].label, /^conversation “/);
   assert.ok(links.groups[0].items.some((l) => l.sources?.[0]?.label === '#general'));
   assert.ok(group(cat(lib, 'records'), 'Decisions & answers').length >= 2);
   assert.equal(cat(lib, 'other').count, 1, 'only README is uncategorised');
@@ -89,7 +96,8 @@ test('your Claude Code conversations are listed and readable, without tool noise
   assert.equal(sess.title, '/bmad-create-prd · Tasks must roll over to tomorrow, and I want offline mode later.');
   assert.deepEqual(sess.commands, ['/bmad-create-prd']);
   const full = await get(`/api/session/${sess.id}`);
-  assert.deepEqual(full.messages.map((m) => m.role), ['you', 'you', 'claude']);
+  assert.deepEqual(full.messages.map((m) => m.role), ['you', 'you', 'claude', 'artifact']);
+  assert.equal(full.messages[3].url, 'https://claude.ai/code/artifact/9c1d2e3f-aaaa-4bbb-8ccc-123456789abc');
   assert.equal(full.messages[2].text, 'Noted: roll-over in MVP, offline after.');
   assert.equal((await fetch(`${base}/api/session/..%2F..%2Fetc`)).status, 404);
 });
@@ -117,4 +125,29 @@ test('mockups open sandboxed; links can be saved from HQ', async () => {
   assert.equal(bad.status, 400);
   const lib = await get('/api/library');
   assert.equal(group(cat(lib, 'links'), 'Videos')[0].title, 'Loom walkthrough');
+});
+
+test('the artifact hook saves a published Claude artifact to HQ right away', async () => {
+  const { spawn } = await import('node:child_process');
+  const hook = new URL('../src/hook.js', import.meta.url).pathname;
+  // async: HQ runs in this process and must stay free to answer the hook
+  const input = {
+    cwd: root,
+    session_id: 'feedbeef-0000',
+    tool_name: 'Artifact',
+    tool_input: { file_path: `${root}/design/onboarding-flow.html`, description: 'Onboarding flow v2' },
+    tool_response: { content: [{ type: 'text', text: 'Published https://claude.ai/code/artifact/77aa88bb-cccc-4ddd-8eee-000000000042' }] },
+  };
+  const code = await new Promise((resolve) => {
+    const child = spawn('node', [hook, 'post-tool']);
+    child.on('exit', resolve);
+    child.stdin.end(JSON.stringify(input));
+  });
+  assert.equal(code, 0);
+  assert.ok(!fs.existsSync(path.join(root, '.madcompany', 'run', 'pending-links.jsonl')), 'saved live, not queued');
+  const lib = await get('/api/library');
+  const saved = cat(lib, 'links').groups[0].items.find((l) => l.url.endsWith('000000000042'));
+  assert.equal(saved.title, 'Onboarding flow v2');
+  assert.equal(saved.saved, true);
+  assert.match(saved.note, /session feedbeef/);
 });

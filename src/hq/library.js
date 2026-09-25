@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isHiddenPath } from '../paths.js';
+import { ARTIFACT_URL } from '../hook.js';
 
 /**
  * HQ's Library: one place for everything about the project. Planning files,
@@ -126,9 +127,11 @@ export function createLibrary({ paths, config, store }) {
     const used = new Set();
     const take = (items) => (items.forEach((x) => used.add(x.path)), items);
 
+
     const found = foundLinks(f.plan.concat(f.design));
     const saved = [...s.links].reverse();
     const allLinks = [...saved.map((l) => ({ ...l, saved: true })), ...found];
+    const claudeArtifacts = allLinks.filter((l) => l.kind === 'Claude artifact');
 
     const categories = [
       cat('discovery', 'Discovery', 'Brainstorming, research and the product brief.', [
@@ -139,6 +142,7 @@ export function createLibrary({ paths, config, store }) {
       cat('requirements', 'Requirements', 'What the product must do. Every FR/NFR is anchored and clickable.', [['PRD', take(byLabel(planning, ['PRD']))]]),
       cat('ux', 'UX & UI', 'The UX spec, mockups, screenshots from the team and the running app.', [
         ['UX design', take(byLabel(planning, ['UX design']))],
+        ['Claude artifacts', claudeArtifacts],
         ['Mockups', take(byLabel(planning, ['Mockup']))],
         ['Images', take(byLabel(planning, ['Image']))],
         ['Screenshots', shots],
@@ -200,12 +204,12 @@ export function createLibrary({ paths, config, store }) {
   }
   function foundLinks(rels) {
     const seen = new Map();
-    const add = (url, source, href) => {
+    const add = (url, source, href, verb) => {
       const clean = url.replace(/[).,;:!?\]>'"*_]+$/, '');
       if (/127\.0\.0\.1|localhost/.test(clean)) return;
       if (!seen.has(clean)) seen.set(clean, { url: clean, kind: kindOfUrl(clean), title: linkTitle(clean), sources: [] });
       const e = seen.get(clean);
-      if (e.sources.length < 3 && !e.sources.some((x) => x.label === source)) e.sources.push({ label: source, href });
+      if (e.sources.length < 3 && !e.sources.some((x) => x.label === source)) e.sources.push({ label: source, href, ...(verb ? { verb } : {}) });
     };
     for (const rel of rels) {
       if (!TEXT.test(rel)) continue;
@@ -214,6 +218,16 @@ export function createLibrary({ paths, config, store }) {
     }
     for (const m of store.state.messages) for (const u of m.text.matchAll(/https?:\/\/[^\s)<>"'`]+/g)) add(u[0], `#${m.channel}`, `#/chat/${encodeURIComponent(m.channel)}`);
     for (const d of store.state.decisions) for (const u of `${d.decision} ${d.why} ${(d.links ?? []).join(' ')}`.matchAll(/https?:\/\/[^\s)<>"'`]+/g)) add(u[0], d.id, `#/decisions/${d.id}`);
+    if (config.library?.sessions !== false) {
+      for (const meta of sessions()) {
+        for (const a of meta.artifacts ?? []) {
+          add(a.url, `conversation “${meta.title.slice(0, 50)}”`, `#/session/${meta.id}`, 'Published in');
+          const e = seen.get(a.url);
+          if (e && (!e.title || e.title.startsWith('Claude artifact'))) e.title = a.title;
+          if (e && !e.ts) e.ts = a.ts;
+        }
+      }
+    }
     const saved = new Set(store.state.links.map((l) => l.url));
     return [...seen.values()].filter((l) => !saved.has(l.url)).sort((a, b) => (a.kind === 'Claude artifact' ? -1 : 0) - (b.kind === 'Claude artifact' ? -1 : 0));
   }
@@ -258,6 +272,8 @@ export function createLibrary({ paths, config, store }) {
     const hit = sessionCache.get(file);
     if (hit && hit.mtime === st.mtimeMs) return hit.value;
     const messages = [];
+    const artifacts = [];
+    const toolInputs = new Map();
     const raw = st.size > 50 * 1024 * 1024 ? '' : fs.readFileSync(file, 'utf8');
     for (const line of raw.split('\n')) {
       if (!line) continue;
@@ -267,7 +283,23 @@ export function createLibrary({ paths, config, store }) {
       } catch {
         continue;
       }
-      if ((ev.type !== 'user' && ev.type !== 'assistant') || ev.isSidechain || ev.isMeta) continue;
+      if ((ev.type !== 'user' && ev.type !== 'assistant') || ev.isSidechain) continue;
+      // artifacts this session published: the link is in the Artifact tool's result
+      for (const b of Array.isArray(ev.message?.content) ? ev.message.content : []) {
+        if (b?.type === 'tool_use' && /artifact/i.test(b.name ?? '') && !/comment|data/i.test(b.name ?? '')) toolInputs.set(b.id, b.input ?? {});
+        if (b?.type === 'tool_result' && toolInputs.has(b.tool_use_id)) {
+          const args = toolInputs.get(b.tool_use_id);
+          if (args.action && args.action !== 'publish') continue;
+          for (const url of new Set(JSON.stringify(b.content ?? '').match(ARTIFACT_URL) ?? [])) {
+            if (artifacts.some((a) => a.url === url)) continue;
+            const file = args.file_path ? path.basename(String(args.file_path)).replace(/\.[a-z]+$/i, '').replace(/[-_]+/g, ' ') : '';
+            const a = { url, title: String(args.title || args.description || file || 'Claude artifact').slice(0, 140), ts: ev.timestamp ?? null };
+            artifacts.push(a);
+            messages.push({ role: 'artifact', text: a.title, url, ts: a.ts });
+          }
+        }
+      }
+      if (ev.isMeta) continue;
       const text = messageText(ev);
       if (text) messages.push({ role: ev.type === 'user' ? 'you' : 'claude', text, ts: ev.timestamp ?? null });
     }
@@ -282,6 +314,7 @@ export function createLibrary({ paths, config, store }) {
       updated: st.mtime.toISOString(),
       yourMessages: messages.filter((m) => m.role === 'you').length,
       commands: [...new Set(messages.filter((m) => m.role === 'you' && m.text.startsWith('/')).map((m) => m.text.split(/\s/)[0]))].slice(0, 8),
+      artifacts,
       messages,
     };
     sessionCache.set(file, { mtime: st.mtimeMs, value });

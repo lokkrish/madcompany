@@ -37,6 +37,9 @@ test('init merges into existing settings and never clobbers them', () => {
   assert.equal(st.model, 'opus');
   assert.ok(st.permissions.allow.includes('Bash(make *)') && st.permissions.allow.includes('mcp__madcompany'));
   assert.equal(st.hooks.PreToolUse.length, 1);
+  assert.equal(st.hooks.PostToolUse.length, 1);
+  assert.equal(st.hooks.PostToolUse[0].matcher, 'Artifact');
+  assert.match(st.hooks.PostToolUse[0].hooks[0].command, /hook\.mjs" post-tool$/);
   const mcp = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
   assert.ok(mcp.mcpServers.other && mcp.mcpServers.madcompany.url.endsWith('/mcp'));
   assert.ok(fs.existsSync(path.join(root, '.claude', 'skills', 'mc-start', 'SKILL.md')));

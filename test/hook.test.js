@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { checkCommand, decide, isSecretFile } from '../src/hook.js';
+import { checkCommand, decide, isSecretFile, artifactLinks } from '../src/hook.js';
+import { createHq } from '../src/hq/server.js';
 import { tmpProject } from './helpers.js';
 
 const HOOK = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'hook.js');
@@ -86,4 +87,26 @@ test('the hook script exits 2 with a reason, as Claude Code expects', () => {
   assert.equal(run({ tool_name: 'Bash', tool_input: { command: 'npm test' } }).status, 0);
   assert.equal(run({ tool_name: 'Read', tool_input: { file_path: `${r}/.env` } }).status, 2);
   assert.equal(spawnSync('node', [HOOK], { input: 'not json', encoding: 'utf8' }).status, 0, 'never breaks the session');
+});
+
+test('artifact capture: only published Claude artifacts, titled from what was published', () => {
+  const res = { content: 'Published: https://claude.ai/artifact/abc123XYZ and https://claude.ai/code/artifact/0f0e-11 done' };
+  const got = artifactLinks({ tool_name: 'Artifact', tool_input: { file_path: '/p/pricing_page.html' }, tool_response: res });
+  assert.deepEqual(got.map((l) => l.url), ['https://claude.ai/artifact/abc123XYZ', 'https://claude.ai/code/artifact/0f0e-11']);
+  assert.equal(got[0].title, 'pricing page');
+  assert.deepEqual(artifactLinks({ tool_name: 'Artifact', tool_input: { action: 'read', url: 'https://claude.ai/artifact/x1' }, tool_response: res }), []);
+  assert.deepEqual(artifactLinks({ tool_name: 'Bash', tool_input: {}, tool_response: res }), []);
+});
+
+test('artifacts published while HQ is off are queued and imported when HQ starts', async () => {
+  const { root: r, paths } = tmpProject({ git: true });
+  const input = { cwd: r, tool_name: 'Artifact', tool_input: { description: 'Settings screen' }, tool_response: 'https://claude.ai/code/artifact/5e5e-0001' };
+  assert.equal(spawnSync('node', [HOOK, 'post-tool'], { input: JSON.stringify(input), encoding: 'utf8' }).status, 0);
+  const queue = path.join(paths.run, 'pending-links.jsonl');
+  assert.ok(fs.existsSync(queue));
+  const hq = createHq({ paths, port: 0, quiet: true });
+  assert.equal(hq.store.state.links[0].title, 'Settings screen');
+  assert.equal(hq.store.state.links[0].kind, 'Claude artifact');
+  assert.ok(!fs.existsSync(queue));
+  await hq.close();
 });

@@ -62,11 +62,15 @@ export function init(paths, { skills = true, port = 4317, log = console.log } = 
   st.hooks.PreToolUse ??= [];
   const has = st.hooks.PreToolUse.some((h) => (h.hooks ?? []).some((x) => String(x.command).includes('.madcompany/bin/hook.mjs')));
   if (!has) st.hooks.PreToolUse.push({ matcher: '*', hooks: [{ type: 'command', command: HOOK_COMMAND, timeout: 10 }] });
+  // save Claude artifacts to HQ → Library → Links the moment a session publishes one
+  st.hooks.PostToolUse ??= [];
+  const hasPost = st.hooks.PostToolUse.some((h) => (h.hooks ?? []).some((x) => String(x.command).includes('.madcompany/bin/hook.mjs')));
+  if (!hasPost) st.hooks.PostToolUse.push({ matcher: 'Artifact', hooks: [{ type: 'command', command: `${HOOK_COMMAND} post-tool`, timeout: 10 }] });
   st.permissions ??= {};
   st.permissions.allow = [...new Set([...(st.permissions.allow ?? []), ...DEFAULT_ALLOW])];
   st.enabledMcpjsonServers = [...new Set([...(st.enabledMcpjsonServers ?? []), 'madcompany'])];
   fs.writeFileSync(settingsFile, JSON.stringify(st, null, 2) + '\n');
-  log('  updated .claude/settings.json (safety hook, permissions)');
+  log('  updated .claude/settings.json (safety hook, artifact capture, permissions)');
 
   // keep runtime files out of git
   const gi = path.join(root, '.gitignore');

@@ -12,6 +12,7 @@ First version.
 - BMad bridge: anchors requirement, epic and story IDs, links bare references, imports stories as tickets with dependencies
 - Claude Code integration: `/mc-*` skills and one subagent per team member, each in its own worktree
 - Library in HQ: planning files, UX spec and HTML mockups, architecture and design docs, epics, minutes of meetings, Claude Code conversations and links (Claude artifacts first), sorted by stage, plus search across everything
+- Claude artifacts are captured automatically: a PostToolUse hook saves each published artifact to HQ (queued while HQ is off), and past ones are found in session transcripts
 - `/mc-minutes` and the `mc_minutes` / `mc_link` tools
 - Per-agent model picker in HQ's Team page (writes `team.yaml` and regenerates the agent)
 - `madcompany demo` for a sample project

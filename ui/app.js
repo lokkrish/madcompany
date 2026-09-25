@@ -451,9 +451,9 @@ function libItem(it, catId) {
   if (catId === 'conversations') {
     return `<a class="lib-item" href="#/session/${esc(it.id)}"><div class="row"><b>${esc(it.title)}</b><span class="grow"></span><span class="time">${clock(it.started)}</span></div><div class="sub">${it.yourMessages} messages from you${it.commands.length ? ` · ${it.commands.map((c) => `<code>${esc(c)}</code>`).join(' ')}` : ''}</div></a>`;
   }
-  if (catId === 'links') {
+  if (catId === 'links' || it.url) {
     const host = (() => { try { return new URL(it.url).host; } catch { return it.url; } })();
-    const src = it.sources?.length ? `<div class="sub">Found in ${it.sources.map((x) => `<a href="${esc(x.href)}">${esc(x.label)}</a>`).join(', ')}</div>` : it.note ? `<div class="sub">${linkify(it.note)}</div>` : '';
+    const src = it.sources?.length ? `<div class="sub">${esc(it.sources[0].verb ?? 'Found in')} ${it.sources.map((x) => `<a href="${esc(x.href)}">${esc(x.label)}</a>`).join(', ')}</div>` : it.note ? `<div class="sub">${linkify(it.note)}</div>` : '';
     return `<div class="lib-item"><div class="row"><a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(it.title ?? host)}</b></a>${it.saved ? pill('agreed', 'saved') : ''}<span class="grow"></span><span class="sub">${esc(host)}</span></div>${src}</div>`;
   }
   if (it.label === 'Screenshot') {
@@ -529,7 +529,9 @@ function sessionView(r) {
       const msgs = sess.messages.slice(-1500);
       $main.innerHTML = `<div class="top"><div class="grow"><div class="sub"><a href="#/library/conversations">Conversations</a></div><h1>${esc(sess.title)}</h1><div class="sub">Started ${clock(sess.started)} · ${sess.yourMessages} messages from you · Claude Code session <code>${esc(sess.id.slice(0, 8))}</code></div></div></div>
       <div class="card">${sess.messages.length > msgs.length ? `<p class="sub">Showing the last ${msgs.length} messages.</p>` : ''}${msgs
-        .map((m) => `<div class="msg ${m.role === 'you' ? 'you' : ''}">${m.role === 'you' ? avatar('you') : '<span class="avatar" style="background:#d97757">C</span>'}<div class="body"><div><b>${m.role === 'you' ? 'You' : 'Claude'}</b> <span class="time">${clock(m.ts)}</span></div><div class="text">${linkify(m.text.length > 4000 ? `${m.text.slice(0, 4000)}…` : m.text)}</div></div></div>`)
+        .map((m) => m.role === 'artifact'
+          ? `<div class="msg"><span class="avatar" style="background:#1f6feb">A</span><div class="body"><div><b>Published a Claude artifact</b> <span class="time">${clock(m.ts)}</span></div><div class="text"><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${esc(m.text)} ↗</a></div></div></div>`
+          : `<div class="msg ${m.role === 'you' ? 'you' : ''}">${m.role === 'you' ? avatar('you') : '<span class="avatar" style="background:#d97757">C</span>'}<div class="body"><div><b>${m.role === 'you' ? 'You' : 'Claude'}</b> <span class="time">${clock(m.ts)}</span></div><div class="text">${linkify(m.text.length > 4000 ? `${m.text.slice(0, 4000)}…` : m.text)}</div></div></div>`)
         .join('')}</div>`;
     })
     .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
