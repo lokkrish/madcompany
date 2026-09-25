@@ -1,6 +1,7 @@
 name: test
 on:
   push:
+    branches: ['**'] # version tags are tested by release.yml
   pull_request:
 jobs:
   test:

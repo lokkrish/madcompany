@@ -1,0 +1,85 @@
+name: release
+# Pushing a version tag (vX.Y.Z) runs the tests, publishes that version to npm and
+# creates its GitHub Release from CHANGELOG.md. See "Releasing" in CONTRIBUTING.md.
+#
+# npm trusts this workflow through Trusted Publishing, so no npm token is stored anywhere.
+# One-time setup on npmjs.com: madcompany → Settings → Trusted Publisher → GitHub Actions,
+# user "lokkrish", repository "madcompany", workflow "release.yml", environment left empty.
+#
+# Run it by hand (Actions → release → Run workflow) with an existing tag to retry a release.
+# A version that's already on npm is never published again; its GitHub Release is updated.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to release, e.g. v0.2.0
+        required: true
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # prove to npm that this workflow is the one publishing
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      MAIN: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Check the tag, package.json and CHANGELOG.md agree
+        id: version
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$TAG is not a version tag like v1.2.3"; exit 1; }
+          git merge-base --is-ancestor HEAD "origin/$MAIN" || { echo "::error::$TAG is not on $MAIN; only commits on $MAIN are released"; exit 1; }
+          version=$(node -p 'require("./package.json").version')
+          [ "v$version" = "$TAG" ] || { echo "::error::package.json says $version but the tag is $TAG"; exit 1; }
+          # the notes are the "## <version> (date)" section of CHANGELOG.md
+          awk -v v="$version" '/^## / { if (found) exit; found = ($2 == v); next } found' CHANGELOG.md | sed '/./,$!d' > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || { echo "::error::CHANGELOG.md has no '## $version' section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # prereleases (1.2.0-beta.1) go to the "next" dist-tag, so "latest" stays on the last stable version
+          if [[ "$version" == *-* ]]; then echo "dist_tag=next" >> "$GITHUB_OUTPUT"; else echo "dist_tag=latest" >> "$GITHUB_OUTPUT"; fi
+      - run: npm ci
+      - run: git config --global user.email ci@example.com && git config --global user.name CI
+      - run: npm run test:ci
+      - name: Publish to npm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+        run: |
+          name=$(node -p 'require("./package.json").name')
+          status=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$name/$VERSION")
+          case "$status" in
+            200) echo "$name@$VERSION is already on npm; not publishing it again"; exit 0 ;;
+            404) ;;
+            *) echo "::error::Couldn't tell whether $name@$VERSION is on npm (HTTP $status)"; exit 1 ;;
+          esac
+          # Trusted Publishing needs npm 11.5.1 or later. Node 22 ships npm 10, and upgrading
+          # it in place (npm install -g npm@11) fails, so npm 11 runs through npx instead.
+          # The tests ran above, so prepublishOnly doesn't need to run them again.
+          npx --yes npm@11 publish --ignore-scripts --tag "$DIST_TAG"
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+        run: |
+          printf '\n---\n\n`npx madcompany@%s init` · [npm](https://www.npmjs.com/package/madcompany/v/%s) · [Changelog](https://github.com/%s/blob/%s/CHANGELOG.md)\n' "$VERSION" "$VERSION" "$GITHUB_REPOSITORY" "$TAG" >> "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "madcompany $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            flags=(); [ "$DIST_TAG" = next ] && flags=(--prerelease)
+            gh release create "$TAG" --verify-tag --title "madcompany $VERSION" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          fi
