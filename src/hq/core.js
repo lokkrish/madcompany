@@ -19,14 +19,16 @@ export function createCore({ store, config, paths }) {
 
   // ---------- helpers ----------
   const isMember = (id) => Boolean(member(config, id));
+  // you, plus anyone invited to HQ (config.people)
+  const isHuman = (id) => id === HUMAN || config.people.some((p) => p.id === id);
   function actor(as, { allowHuman = false, allowCli = false } = {}) {
-    if (allowHuman && as === HUMAN) return HUMAN;
+    if (allowHuman && isHuman(as)) return as;
     if (allowCli && as === 'cli') return 'cli';
     if (!isMember(as)) throw new McError(`Unknown team member "${as}". Pass your own id as "as" (one of: ${config.team.map((m) => m.id).join(', ')}).`);
     return as;
   }
   function leadOnly(as, what, { allowHuman = false, allowCli = false } = {}) {
-    if (as === lead || (allowHuman && as === HUMAN) || (allowCli && as === 'cli')) return as;
+    if (as === lead || (allowHuman && isHuman(as)) || (allowCli && as === 'cli')) return as;
     throw new McError(`Only the lead can ${what}.`);
   }
   function ticket(id) {
@@ -52,7 +54,7 @@ export function createCore({ store, config, paths }) {
 
   function workdayControl(as) {
     const st = s().workday.state;
-    if (as === lead || as === HUMAN || as === 'cli') return null;
+    if (as === lead || isHuman(as) || as === 'cli') return null;
     if (st === 'stopped') return 'STOP: stop now. End your turn immediately without further tool calls.';
     if (st === 'ending') return 'END_DAY: finish your current step, then call mc_block (with a checkpoint) or mc_submit, then mc_handoff, then end your turn.';
     if (st === 'off') return 'WORKDAY_OFF: the workday is off. Call mc_handoff and end your turn.';
@@ -80,7 +82,7 @@ export function createCore({ store, config, paths }) {
   function parseMentions(text) {
     const out = new Set();
     for (const m of String(text).matchAll(/@([a-z][a-z0-9-]*)/g)) {
-      if (isMember(m[1]) || m[1] === HUMAN) out.add(m[1]);
+      if (isMember(m[1]) || isHuman(m[1])) out.add(m[1]);
     }
     return [...out];
   }
@@ -89,7 +91,7 @@ export function createCore({ store, config, paths }) {
     const c = String(channel ?? 'general').trim().replace(/^#/, '');
     if (c.startsWith('dm:')) {
       const other = c.slice(3).split('+').find((x) => x !== as) ?? c.slice(3);
-      if (!isMember(other) && other !== HUMAN) throw new McError(`Unknown DM recipient "${other}".`);
+      if (!isMember(other) && !isHuman(other)) throw new McError(`Unknown DM recipient "${other}".`);
       return `dm:${[as, other].sort().join('+')}`;
     }
     if (c.startsWith('ticket:')) return `ticket:${ticket(c.slice(7)).id}`;
@@ -119,7 +121,7 @@ export function createCore({ store, config, paths }) {
         m.by !== id &&
         (m.mentions.includes(id) ||
           (m.channel.startsWith('dm:') && m.channel.slice(3).split('+').includes(id)) ||
-          (id === lead && m.by === HUMAN)),
+          (id === lead && isHuman(m.by))),
     );
   }
 
@@ -128,6 +130,8 @@ export function createCore({ store, config, paths }) {
     return config.team.map((m) => ({
       id: m.id,
       role: m.role,
+      type: m.type,
+      dept: m.dept,
       domain: m.domain,
       also: m.also,
       model: m.model,
@@ -159,7 +163,7 @@ export function createCore({ store, config, paths }) {
       todo_count: tickets.filter((t) => t.status === 'todo').length,
       done_count: tickets.filter((t) => t.status === 'done').length,
       open_questions: Object.values(s().questions).filter((q) => q.status === 'open').map((q) => ({ id: q.id, from: q.from, to: q.to, question: q.question })),
-      unread: as === HUMAN || as === 'cli' ? 0 : inboxFor(as).length,
+      unread: isHuman(as) || as === 'cli' ? 0 : inboxFor(as).length,
       control: workdayControl(as),
     };
   }
@@ -214,8 +218,10 @@ export function createCore({ store, config, paths }) {
     return {
       ...st,
       handoffs: s().handoffs,
-      human_messages: s().messages.filter((m) => m.by === HUMAN).slice(-5),
-      answered_for_you: Object.values(s().questions).filter((q) => q.status === 'answered' && q.answeredBy === HUMAN).slice(-5),
+      // the humans in HQ besides "you"; agents can @mention them
+      people: config.people,
+      human_messages: s().messages.filter((m) => isHuman(m.by)).slice(-5),
+      answered_for_you: Object.values(s().questions).filter((q) => q.status === 'answered' && isHuman(q.answeredBy)).slice(-5),
     };
   }
   function requestEndDay(as) {
@@ -561,15 +567,15 @@ export function createCore({ store, config, paths }) {
     const q = s().questions[String(qid).toUpperCase()];
     if (!q) throw new McError(`No question ${qid}.`);
     if (q.status !== 'open') throw new McError(`${q.id} is already answered.`);
-    if (as !== q.to && as !== lead && as !== HUMAN) throw new McError(`${q.id} is for ${q.to}.`);
+    if (as !== q.to && as !== lead && !isHuman(as)) throw new McError(`${q.id} is for ${q.to}.`);
     if (!text) throw new McError('Empty answer.');
     store.append('question.answer', as, { id: q.id, answer: String(text) });
-    if (as === HUMAN) {
+    if (isHuman(as)) {
       const fid = nextId('fact', 'F');
       store.append('fact.add', as, { id: fid, text: `${q.question} → ${text}`, source: q.id });
       writeFacts();
     }
-    post(as === HUMAN ? HUMAN : as, { channel: `dm:${q.from === HUMAN ? lead : q.from}`, text: `${q.id} answered: ${text}` });
+    post(as, { channel: `dm:${isHuman(q.from) ? lead : q.from}`, text: `${q.id} answered: ${text}` });
     return { ok: true };
   }
 
@@ -682,7 +688,10 @@ export function createCore({ store, config, paths }) {
   function env(as) {
     const m = member(config, actor(as));
     if (!s().envs[as]) {
-      const base = config.ports.base + (m.index + 1) * 10;
+      const used = new Set(Object.values(s().envs).map((e) => e.ports.web));
+      let slot = m.index + 1;
+      while (used.has(config.ports.base + slot * 10)) slot += 1;
+      const base = config.ports.base + slot * 10;
       store.append('env.allocate', 'cli', { agent: as, ports: { web: base, api: base + 1, expo: base + 2 }, db: `mc_${as.replace(/-/g, '_')}` });
     }
     const e = s().envs[as];
@@ -752,19 +761,19 @@ export function createCore({ store, config, paths }) {
   }
 
   // ---------- feedback & change requests ----------
-  function feedback(f = {}) {
+  function feedback(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty comment.');
     const where = [f.route && `Screen: ${f.route}`, f.selector && `Element: \`${f.selector}\``, f.snippet && `Element text: "${String(f.snippet).slice(0, 120)}"`, f.viewport && `Screen size: ${f.viewport}`, f.url && `URL: ${f.url}`]
       .filter(Boolean)
       .join('\n');
-    const res = createTicket(HUMAN, { title: `Feedback: ${f.text.slice(0, 70)}`, body: `${f.text}\n\n${where}`, kind: 'feedback', ui: true });
-    post(HUMAN, { channel: 'general', text: `New feedback ${res.ticket.id} @${lead}: ${f.text}` });
+    const res = createTicket(by, { title: `Feedback: ${f.text.slice(0, 70)}`, body: `${f.text}\n\n${where}`, kind: 'feedback', ui: true });
+    post(by, { channel: 'general', text: `New feedback ${res.ticket.id} @${lead}: ${f.text}` });
     return res;
   }
-  function change(f = {}) {
+  function change(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty change request.');
-    const res = createTicket(HUMAN, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change' });
-    post(HUMAN, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — please post an impact check.` });
+    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change' });
+    post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — please post an impact check.` });
     return res;
   }
 
@@ -772,6 +781,7 @@ export function createCore({ store, config, paths }) {
     config,
     store,
     paths,
+    isHuman,
     status,
     dashboard,
     briefing,

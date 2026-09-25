@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { loadConfig, member, McError } from './config.js';
+import { ROLES, TEMPLATES, suggestId } from './roles.js';
 import { ensureDir } from './paths.js';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -181,7 +182,8 @@ export function staff(paths, { log = console.log } = {}) {
     ]
       .filter(Boolean)
       .join('\n');
-    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
+    const duties = m.duties.length ? `\n\n## Your role\n\n${m.duties.map((d) => `- ${d}`).join('\n')}` : '';
+    const content = `${front}\n\nYou are **${m.id}**, the ${m.role} on this project's madcompany team.${m.domain.length ? ` Your main domain: ${m.domain.join(', ')}.` : ''}${m.also.length ? ` You also know ${m.also.join(', ')}.` : ''}${duties}\n\nAt the start of every run, call \`mc_memory\` (as: "${m.id}") to load your identity and memories.\n\n${body}`;
     fs.writeFileSync(path.join(agentsDir, `${name}.md`), content);
     log(`  wrote .claude/agents/${name}.md`);
   }
@@ -216,4 +218,78 @@ export function setMemberModel(paths, id, model) {
   fs.writeFileSync(paths.team, doc.toString({ flowCollectionPadding: false }));
   staff(paths, { log: () => {} });
   return { id, model: value };
+}
+
+// ---------- team changes (templates, hiring, letting go) ----------
+
+function editTeam(paths, fn) {
+  const doc = YAML.parseDocument(fs.readFileSync(paths.team, 'utf8'));
+  fn(doc);
+  const text = doc.toString({ flowCollectionPadding: false });
+  loadConfig({ ...paths, team: null, _text: text }); // validate before writing (throws McError)
+  fs.writeFileSync(paths.team, text);
+  return staff(paths, { log: () => {} });
+}
+
+/**
+ * Replace the team with a ready-made one (small 5, medium 10, large 20).
+ * Refuses if a current member still has tickets, unless force is set.
+ */
+export function applyTemplate(paths, name, { force = false, busy = [] } = {}) {
+  const t = TEMPLATES[name];
+  if (!t) throw new McError(`Unknown template "${name}". Use one of: ${Object.keys(TEMPLATES).join(', ')}`);
+  const keep = new Set(t.team.map((m) => m.id));
+  const leaving = busy.filter((id) => !keep.has(id));
+  if (leaving.length && !force) throw new McError(`${leaving.join(', ')} still have tickets and aren't in the ${name} template. Reassign them first, or use --force.`);
+  return editTeam(paths, (doc) => {
+    doc.set('max_parallel', t.max_parallel);
+    doc.set('team', doc.createNode(t.team.map(({ id, type }) => ({ id, type }))));
+  });
+}
+
+export function hireMember(paths, f = {}) {
+  if (!ROLES[f.type] || f.type === 'tech-lead') throw new McError(`Pick a role to hire: ${Object.keys(ROLES).filter((r) => r !== 'tech-lead').join(', ')}`);
+  const cfg = loadConfig(paths);
+  const taken = new Set([...cfg.team.map((m) => m.id), ...cfg.people.map((p) => p.id)]);
+  const id = String(f.id || suggestId(f.type, taken)).trim();
+  if (taken.has(id)) throw new McError(`"${id}" is already on the team.`);
+  const entry = { id, type: f.type };
+  if (f.model) entry.model = f.model;
+  if (f.domain?.length) entry.domain = f.domain;
+  editTeam(paths, (doc) => doc.get('team').add(doc.createNode(entry)));
+  return { id, type: f.type };
+}
+
+export function removeMember(paths, id, { busy = [] } = {}) {
+  const cfg = loadConfig(paths);
+  const m = member(cfg, id);
+  if (!m) throw new McError(`No team member "${id}".`);
+  if (m.lead) throw new McError("The lead can't be removed.");
+  if (busy.includes(id)) throw new McError(`${id} still has tickets in progress or parked. Reassign them first.`);
+  editTeam(paths, (doc) => {
+    const seq = doc.get('team');
+    seq.items = seq.items.filter((it) => it.get('id') !== id);
+  });
+  return { id };
+}
+
+export function addPerson(paths, f = {}) {
+  const entry = { id: String(f.id ?? '').trim(), name: String(f.name || f.id || '').trim(), role: f.role ?? 'member' };
+  editTeam(paths, (doc) => {
+    if (!doc.has('people')) doc.set('people', doc.createNode([]));
+    const seq = doc.get('people');
+    if (seq.items.some((it) => it.get('id') === entry.id)) throw new McError(`"${entry.id}" is already invited.`);
+    seq.add(doc.createNode(entry));
+  });
+  return entry;
+}
+
+export function removePerson(paths, id) {
+  editTeam(paths, (doc) => {
+    const seq = doc.get('people');
+    const before = seq?.items.length ?? 0;
+    if (seq) seq.items = seq.items.filter((it) => it.get('id') !== id);
+    if ((seq?.items.length ?? 0) === before) throw new McError(`No person "${id}".`);
+  });
+  return { id };
 }

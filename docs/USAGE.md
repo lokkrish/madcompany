@@ -44,12 +44,28 @@ project: { name: Tiny Tasks, key: TT }
 max_parallel: 3
 checks: [npm run typecheck, npm run lint, npm test]
 team:
-  - { id: lead, role: Tech lead / PM }   # runs on your session's model
-  - { id: maya, role: UX designer, domain: [design system, screens] }
-  - { id: arjun, role: Backend developer, domain: [Node API, auth], also: [Postgres] }
-  - { id: lena, role: Frontend developer, domain: [Expo screens] }
-  - { id: qa, role: QA engineer, domain: [E2E tests, reviews], model: haiku }
+  - { id: lead }                          # runs on your session's model
+  - { id: maya, type: ux-designer, domain: [design system, screens] }
+  - { id: arjun, type: backend-developer, domain: [Node API, auth], also: [Postgres] }
+  - { id: lena, type: mobile-developer, domain: [Expo screens] }
+  - { id: qa, type: qa-engineer, model: haiku }
 ```
+
+**Roles.** `type:` picks a role, which fills in the title, department, domain, default model, permissions and duties. Anything you set in `team.yaml` wins.
+
+| Department | Roles (`type:`) |
+|---|---|
+| Leadership | `tech-lead` (your own session) |
+| Product | `product-manager` |
+| Design | `ux-designer`, `ui-designer` |
+| Engineering | `architect`, `web-developer`, `mobile-developer`, `backend-developer`, `database-engineer`, `data-engineer` |
+| Quality | `qa-engineer`, `security-engineer` (both review; security can't edit code and defaults to Opus) |
+| Operations | `devops-engineer` |
+| Docs | `tech-writer` |
+
+**Templates.** `npx madcompany staff --template small|medium|large` starts from a 5, 10 or 20-person company (`max_parallel` 3, 4 or 6). It keeps your project settings and comments, and won't drop agents with open tickets unless you add `--force`. On most Claude plans 3 to 6 agents working at once is realistic, however big the team.
+
+**Hiring.** In HQ → **Team**, pick a role and press **Hire** (HQ suggests an id like `backend-4`), or **Remove** someone. The lead and agents with open tickets can't be removed. Restart Claude Code so the change loads.
 
 `npx madcompany staff` then writes `.claude/agents/mc-<id>.md` for everyone except the lead (your own session is the lead). **Restart Claude Code once** so the new agents load.
 
@@ -99,7 +115,7 @@ Your Claude Code session becomes the lead:
 | Ticket | Checkpoint, screenshots, reviews, commits, and the full activity log |
 | Inbox | Multiple-choice questions for you, a change request form, and your saved answers |
 | Decisions | Everything the team decided without you, and why |
-| Team | Roles, domains, ports and databases, handoffs, and each agent's memory |
+| Team | Agents by department with roles, domains, models, ports and databases, handoffs and memory. Hire and remove; invite people |
 | Preview | Your running app at phone, tablet and desktop widths, plus feedback |
 
 Every ID and file path is a link, and the sidebar search looks through all of it. Everything is also written as markdown under `.madcompany/`, so you can read it without HQ.
@@ -108,10 +124,35 @@ Every ID and file path is a link, and the sidebar search looks through all of it
 
 **Conversations.** HQ shows your Claude Code sessions for this project (read from `~/.claude/projects/`) under Library → Conversations, including the planning agents. Nothing leaves your machine. Turn it off with `library: { sessions: false }` in `team.yaml`. Add other folders to the Library with `library: { dirs: [research, design] }`.
 
+## 7. Share HQ with your team
+
+HQ is yours alone by default. To let teammates or a client in:
+
+```bash
+npx madcompany people add priya --name "Priya" --role member     # prints Priya's sign-in link
+npx madcompany people add sam --name "Sam (client)" --role viewer
+npx madcompany hq --share      # prints HQ's address and your own sign-in link
+```
+
+Send each link privately. Opening it signs that person in; the sidebar shows who's signed in. You can do the same from HQ → Team → **People**.
+
+| Role | Can |
+|---|---|
+| owner | Everything: workday, models, hiring, people |
+| member | Read everything, chat, answer questions (saved as facts, under their name), request changes, save links |
+| viewer | Read everything |
+
+- `people link <id>` makes a new link; the old one stops working. `people link you` does it for you. `people remove <id>` ends access. `people list` shows everyone.
+- Agents can @mention people by id, and the Inbox is shared by everyone who can answer.
+- Your agents and the CLI still talk to HQ only from your machine.
+- HQ serves plain HTTP. On your home or office network that's usually fine; for anyone outside it, use a private network such as Tailscale, or an HTTPS tunnel, rather than opening the port to the internet. Requests that arrive through a proxy or tunnel are never treated as coming from your machine.
+- `--bind 192.168.1.20` listens on one address only; `--host name` sets the address printed in links.
+
 ## Troubleshooting
 
 - **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then check `.claude/settings.json` → `permissions.allow`, and add your stack's commands.
 - **Claude Code doesn't list the `madcompany` tools:** is HQ running? Run `/mcp` in Claude Code to check the server.
 - **Port 4317 is taken:** `npx madcompany hq --port 4400` and `npx madcompany init --port 4400` (that updates `.mcp.json`).
 - **A "madcompany policy" message blocked something:** that action needs you. Do it yourself, or set the matching option (e.g. `allow_push: true`).
+- **A teammate's link says "Sign in with the link…":** their link was replaced or they were removed. Run `npx madcompany people link <id>` and send the new one.
 - **Stuck lock after a crash:** delete `.madcompany/run/hq.json` or `.madcompany/run/merge.lock`.

@@ -263,6 +263,8 @@ export function describeEvent(ev) {
     case 'workday.end': return 'closed the workday';
     case 'fact.add': return `recorded ${d.id}: ${clip(d.text)}`;
     case 'team.model': return `set ${d.agent}'s model to ${d.model}`;
+    case 'team.hire': return `hired ${d.id} (${d.type})`;
+    case 'team.remove': return `removed ${d.id} from the team`;
     case 'minutes.add': return `wrote minutes ${d.id}: ${d.title}`;
     case 'link.add': return `saved a link: ${d.title}`;
     default: return null;

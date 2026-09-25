@@ -14,6 +14,8 @@ Compatible with BMad Method v6. Not affiliated with BMad Code, LLC.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7: click it and HQ opens the exact line.
 - **Everything in one place.** HQ's Library sorts your brief, PRD, UX spec and mockups, architecture, design docs, epics, minutes of meetings, Claude Code planning conversations and links by stage. Claude artifacts your sessions publish are saved automatically. Search covers all of it.
 - **Agents have roles, memory and a model you choose.** Each has a domain, a work memory and a comms memory, plus its own git worktree, ports and database. Pick Opus, Sonnet or Haiku per agent from HQ's Team page.
+- **Staff it like a company.** 14 roles across product, design, engineering, quality, ops and docs. Start from a 5, 10 or 20-person template, then hire or remove people from HQ.
+- **Bring your people in.** Share HQ with teammates and clients: members chat and answer questions, viewers just watch, and everyone signs in with a personal link.
 
 ## How it works
 
@@ -26,6 +28,8 @@ Compatible with BMad Method v6. Not affiliated with BMad Code, LLC.
 7. **Demo:** you click through the epic, then the epic branch goes to main.
 
 ![HQ Library: everything about the project, by stage](docs/images/hq-library.png)
+
+![HQ Team: agents by department, hiring, and the people who use HQ](docs/images/hq-team.png)
 
 Details: [docs/USAGE.md](docs/USAGE.md). Design and requirements: [docs/SPEC.md](docs/SPEC.md).
 
@@ -52,7 +56,7 @@ Or install it as a BMad module: `npx bmad-method install --custom-source https:/
 
 | In Claude Code | What it does |
 |---|---|
-| `/mc-staff` | Choose roles, domains and models, then generate one subagent per member |
+| `/mc-staff` | Choose roles, domains and models (or a 5/10/20-person template), then generate one subagent per member |
 | `/mc-plan-epic` | Import BMad stories, anchor IDs, split into tickets |
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract |
 | `/mc-start` | Start the workday; your session becomes the lead |
@@ -61,7 +65,9 @@ Or install it as a BMad module: `npx bmad-method install --custom-source https:/
 
 | CLI (`npx madcompany …`) | What it does |
 |---|---|
-| `hq` | The HQ app and the MCP server agents use |
+| `hq` | The HQ app and the MCP server agents use. `--share` lets your team sign in from their own machines |
+| `staff --template small\|medium\|large` | Start from a 5, 10 or 20-person company |
+| `people add\|link\|remove\|list` | Invite teammates (member) or clients (viewer) to HQ and manage their sign-in links |
 | `import` | Anchor BMad docs and import stories as tickets |
 | `merge <ticket>` | Merge queue: merge into the epic branch, run checks, then mark done or revert and reopen |
 | `refs check` / `refs fix` | Find or fix bare references like "FR12" that should be links |
@@ -72,13 +78,13 @@ Or install it as a BMad module: `npx bmad-method install --custom-source https:/
 Agents work unattended, so the rules are enforced in code, not just in prompts:
 
 - A **pre-tool hook** blocks pushing, force-pushing, deploys, cloud changes, publishing, global installs, piping downloads into a shell, deleting outside the project, and reading or writing `.env` secrets. Those always go to you.
-- **HQ** listens on 127.0.0.1 only and rejects cross-origin and foreign-host requests.
+- **HQ** listens on 127.0.0.1 only and rejects cross-origin and foreign-host requests. With `hq --share`, everyone signs in with a personal link (stored hashed, revocable), and agents and the CLI still only talk to HQ from your machine.
 - **Agents** never see your Claude credentials: they run inside your own Claude Code session on its login.
 - **No third-party skill marketplace.** Third-party services run on mocks until you add real keys yourself.
 
 ## Status
 
-v0. The core loop is covered by 34 automated tests and was checked with real Claude Code runs: a Sonnet lead with Haiku dev and QA agents.
+v0. The core loop is covered by 48 automated tests and was checked with real Claude Code runs: a Sonnet lead with Haiku dev and QA agents.
 
 | Run | What happened | Time | Usage |
 |---|---|---|---|

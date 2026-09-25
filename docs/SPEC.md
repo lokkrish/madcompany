@@ -1,6 +1,6 @@
 # madcompany: Spec
 
-**Status:** v0.3, 2026-09-24. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
+**Status:** v0.4, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
 **Name:** madcompany (earlier: "BMAD Company", then "Storyfront"; see [OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
@@ -85,26 +85,27 @@ Example roster (`.madcompany/team.yaml`):
 ```yaml
 max_parallel: 3            # agents working at the same time
 team:
-  - id: lead
-    role: Tech lead / PM     # runs on your session's model (/model)
+  - id: lead               # runs on your session's model (/model)
   - id: maya
-    role: UX designer
+    type: ux-designer      # a role from the catalogue (TEAM-11)
     domain: [design system, navigation, onboarding flows]
-    model: sonnet
   - id: arjun
-    role: Backend developer
+    type: backend-developer
     domain: [Node API, payments]
     also: [Postgres]
-    model: sonnet
   - id: lena
-    role: Mobile developer
+    type: mobile-developer
     domain: [Expo screens, offline sync]
-    model: sonnet
   - id: qa
-    role: QA engineer
-    domain: [E2E tests, screenshots]
-    model: haiku
+    type: qa-engineer
+    model: haiku           # anything you set wins over the role's defaults
+people:                    # humans who use HQ besides you (HQ-16)
+  - id: priya
+    name: Priya
+    role: member
 ```
+
+Or start from a template: `npx madcompany staff --template small|medium|large` ([TEAM-12](#team-12)).
 
 | ID | Requirement |
 |---|---|
@@ -118,6 +119,9 @@ team:
 | <a id="team-8"></a>TEAM-8 | Each design doc has an owner and a status: draft → agreed → frozen. It becomes "agreed" once every agent that uses it approves. Changing an agreed doc opens a thread tagging all of them. |
 | <a id="team-9"></a>TEAM-9 | Each agent works in its own git worktree, on a branch per ticket (`mc/<ticket>`). The lead merges ([MRG-1](#mrg-1)). |
 | <a id="team-10"></a>TEAM-10 | You choose each member's model (Opus, Sonnet, Haiku, Fable or a full model ID) in HQ's Team page or in `team.yaml`: a stronger one for architecture-heavy work, a cheaper one for QA and routine tickets. This makes the plan's usage limits last longer. The lead runs on your Claude Code session's model (`/model`). |
+| <a id="team-11"></a>TEAM-11 | **Role catalogue.** `type:` picks one of 14 roles in 7 departments: Leadership (tech lead), Product (product manager), Design (UX designer, UI designer), Engineering (architect, web, mobile, backend and database engineers, data engineer), Quality (QA engineer, security engineer), Operations (DevOps engineer) and Docs (tech writer). A role fills in the title, department, domain, default model, permission profile (reviewers such as the security engineer can't edit code) and a list of duties written into the agent's file. Anything set in `team.yaml` wins. |
+| <a id="team-12"></a>TEAM-12 | **Team templates.** `npx madcompany staff --template small\|medium\|large` sets up a 5, 10 or 20-person company, with `max_parallel` 3, 4 or 6. The 20-person team: lead, PM, architect, UX and UI designers, 3 web, 3 mobile and 3 backend developers, a database engineer, 2 QA engineers, DevOps, security and a tech writer. Comments in `team.yaml` are kept, and agents with open tickets aren't dropped unless you pass `--force`. |
+| <a id="team-13"></a>TEAM-13 | **Hire and remove from HQ.** On the Team page, owners pick a role (and optionally an id and model) and hire; HQ suggests the next free id (`backend-4`). The lead and agents with open tickets can't be removed. Every change is logged, and new agents load the next time Claude Code starts. |
 
 ## 5. Tickets, blocking and resume
 
@@ -173,6 +177,8 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="hq-13"></a>HQ-13 | **Links:** Claude artifacts, Figma files, docs and videos, saved by you or agents (`mc_link`) or found automatically in planning files, chat and decisions. Claude artifacts are listed first. **Claude artifacts are captured automatically**: a hook saves each one the moment a Claude Code session publishes it (queued if HQ is off), and HQ also finds the ones in your past sessions' transcripts. They show under Links and under UX & UI. |
 | <a id="hq-14"></a>HQ-14 | **Conversations:** your Claude Code sessions in the project (including the BMad planning agents) are listed and readable in HQ, without tool noise, and searchable. `library.sessions: false` in `team.yaml` turns this off. |
 | <a id="hq-15"></a>HQ-15 | HTML mockups and SVGs open sandboxed, so they can't reach HQ's API. |
+| <a id="hq-16"></a>HQ-16 | **People.** Besides you, HQ can have teammates and clients, listed under `people:` in `team.yaml` and managed on the Team page or with `npx madcompany people`. Each has a role: **owner** (everything, including the workday, models, hiring and people), **member** (chat, answer questions, request changes, save links) or **viewer** (read only). Messages and answers are recorded under the person's name, and their answers become facts ([ESC-3](#esc-3)) like yours. Agents can @mention them. |
+| <a id="hq-17"></a>HQ-17 | **Share mode.** `npx madcompany hq --share` lets people on your network in. Everyone, you included, signs in once with a personal link; the sidebar shows who is signed in. Without `--share`, HQ stays local and needs no sign-in ([SEC-1](#sec-1)). |
 
 ## 7. Clickable references
 
@@ -236,7 +242,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 
 | ID | Requirement |
 |---|---|
-| <a id="sec-1"></a>SEC-1 | HQ listens only on localhost. |
+| <a id="sec-1"></a>SEC-1 | HQ listens only on localhost, unless you start it with `--share` ([SEC-9](#sec-9)). |
 | <a id="sec-2"></a>SEC-2 | No third-party skill or plugin marketplace. Each agent gets only the tools its role needs. |
 | <a id="sec-3"></a>SEC-3 | Secrets live in `.env` (gitignored) and never appear in messages, tickets or logs. |
 | <a id="sec-4"></a>SEC-4 | Content from outside sources (web pages, fetched docs) is treated as data, never as instructions. |
@@ -244,6 +250,7 @@ TODAY  9 tickets moved · 23 commits · tests passing · plan usage 61%
 | <a id="sec-6"></a>SEC-6 | Each role has a permission profile: an allowlist of commands and tools, applied through the host's permission settings. Anything outside it is denied instead of waiting on a prompt nobody will answer; the agent parks the ticket and escalates. |
 | <a id="sec-7"></a>SEC-7 | A hard deny list always goes to you: force-pushing or rewriting history, deleting files outside the project, deploys, paid services or purchases, global installs, and changing secrets. |
 | <a id="sec-8"></a>SEC-8 | Shell commands run in the host's sandbox where it's available. |
+| <a id="sec-9"></a>SEC-9 | **Share mode** ([HQ-17](#hq-17)): sign-in links carry a random 256-bit token, stored only as a SHA-256 hash (`.madcompany/run/access.json`, readable only by you). A new link replaces the old one, and removing a person ends their access. The session cookie is HttpOnly and SameSite=Strict, and write requests must come from HQ's own page. The agents' MCP server, the CLI API and the feedback widget answer only from your machine. HQ serves plain HTTP, so for anyone outside your network use a private network (e.g. Tailscale) or an HTTPS tunnel. |
 
 ## 14. Environments and merging
 
@@ -318,7 +325,7 @@ In an app project:
 
 ```
 .madcompany/
-  team.yaml                 # roster, domains, models       TEAM-1, TEAM-10
+  team.yaml                 # roster, roles, models, people TEAM-1, TEAM-10–12, HQ-16
   agents/<id>/identity.md   # role, domain                  TEAM-2
   agents/<id>/work.md       # work memory                   TEAM-3
   agents/<id>/comms.md      # comms memory                  TEAM-3
@@ -328,17 +335,18 @@ In an app project:
   log/*.md, log/chat/       # readable copies               HQ-8
   credentials-needed.md     #                               INT-2
   bin/hook.mjs              # safety hook                   SEC-6, SEC-7, DAY-3
+  run/access.json           # sign-in link hashes           SEC-9
 .claude/agents/mc-<id>.md   # one subagent per member       TEAM-2, TEAM-9
 .claude/skills/mc-*/        # /mc-start, /mc-plan-epic …
 .mcp.json                   # madcompany MCP server (local)  HQ-9
 docs/design/<area>/         # design packs                  TEAM-7
 ```
 
-In this repo: `src/hq/` (event store, rules, MCP tools, server), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
+In this repo: `src/hq/` (event store, rules, MCP tools, server), `src/roles.js` (role catalogue and templates), `src/auth.js` (sign-in links), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-**In v0:** FLOW-1–5, TEAM-1–10, TKT-1–6, HQ-1–15, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–8, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
+**In v0:** FLOW-1–5, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
-**Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)).
+**Not yet:** deploy after the demo ([FLOW-6](#flow-6), [INT-3](#int-3)), importing in-progress BMad sprints ([FLOW-7](#flow-7)), the existing-codebase scan ([FLOW-8](#flow-8)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)), and the roadmap in [§19](#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
 Checked with real Claude Code runs (a Sonnet lead with Haiku agents): a plain ticket took about 2 minutes and ~$0.5 of usage; a park → escalate → answer → resume → merge cycle took about 2.5 minutes and ~$0.7.
 
@@ -355,3 +363,17 @@ Two v0 gates are honour-based: agents report their own check results (the merge 
 - Your plan's usage limits cap how much can run in parallel.
 - Claude Code's built-in agent-teams feature is still experimental, so this design doesn't depend on it.
 - Codex support depends on Codex's subagent features and gets checked when that adapter is built.
+- Twenty agents can be on the team, but your plan's usage limits decide how many work at once. On most plans 3 to 6 is realistic (`max_parallel`).
+
+## 19. Roadmap: what a 20-person company still does that this doesn't
+
+The roles exist ([TEAM-11](#team-11)); these are the processes a real company of that size runs around them. None of them are built yet. New IDs, in rough order of value:
+
+| ID | Gap | What it would add |
+|---|---|---|
+| <a id="rm-1"></a>RM-1 | QA depth | A test plan per epic, generated from its acceptance criteria. E2E suites that grow with each epic and a full regression run before the demo. Accessibility and performance checks (axe, Lighthouse) as gates, and screenshot comparison ([VIS-4](#vis-4)). |
+| <a id="rm-2"></a>RM-2 | Cost and retrospectives | Usage and time per ticket, agent and epic where the host reports it, plus rework rate (reopened tickets, review rounds). A retrospective at the end of each epic, saved as minutes ([HQ-12](#hq-12)), that also says which agent memories need fixing. |
+| <a id="rm-3"></a>RM-3 | Release management | A staging environment, release notes built from tickets and decisions, version tags, a deploy checklist and a rollback plan. Builds on [FLOW-6](#flow-6) and [INT-3](#int-3). |
+| <a id="rm-4"></a>RM-4 | Security review | The security engineer as a required second reviewer on auth, payments and personal-data tickets. Dependency audit and secret scanning in the checks, and a threat model per epic. |
+| <a id="rm-5"></a>RM-5 | Planning cadence | Priorities (P0 to P3), iterations sized by `max_parallel`, a roadmap view across epics, a risk register and a tech-debt list the lead grooms. |
+| <a id="rm-6"></a>RM-6 | Operations after MVP | Error tracking, logs and uptime checks behind adapters ([INT-1](#int-1)). Production errors become tickets, and incidents get short write-ups. |

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import YAML from 'yaml';
+import { ROLES } from './roles.js';
 
 export class McError extends Error {}
 
@@ -47,19 +48,35 @@ export function parseTeam(text) {
     if (RESERVED.has(id)) throw new McError(`team[${i}].id "${id}" is reserved`);
     if (seen.has(id)) throw new McError(`team id "${id}" is used twice`);
     seen.add(id);
-    const isLead = m.lead === true || id === 'lead';
-    const profile = m.profile ?? (isLead ? 'lead' : 'developer');
+    if (m.type != null && !ROLES[m.type]) throw new McError(`team[${i}].type "${m.type}" is unknown. Use one of: ${Object.keys(ROLES).join(', ')}`);
+    const r = ROLES[m.type] ?? null;
+    const isLead = m.lead === true || id === 'lead' || m.type === 'tech-lead';
+    const profile = m.profile ?? r?.profile ?? (isLead ? 'lead' : 'developer');
     if (!PROFILES.has(profile)) throw new McError(`team[${i}].profile must be one of ${[...PROFILES].join(', ')}`);
     return {
       id,
-      role: String(m.role ?? (isLead ? 'Tech lead / PM' : 'Developer')),
-      domain: toList(m.domain),
+      type: m.type ?? (isLead ? 'tech-lead' : null),
+      dept: r?.dept ?? (isLead ? 'Leadership' : 'Other'),
+      role: String(m.role ?? r?.title ?? (isLead ? 'Tech lead / PM' : 'Developer')),
+      domain: m.domain != null ? toList(m.domain) : [...(r?.domain ?? [])],
       also: toList(m.also),
-      model: m.model ?? 'inherit',
-      profile,
+      model: m.model ?? (isLead ? 'inherit' : r?.model ?? 'inherit'),
+      duties: r?.duties ?? [],
+      profile: isLead ? 'lead' : profile,
       lead: isLead,
       index: i,
     };
+  });
+  // the humans who use HQ besides you (see "madcompany people")
+  const people = Array.isArray(raw.people) ? raw.people : [];
+  cfg.people = people.map((p, i) => {
+    const id = String(p?.id ?? '').trim();
+    if (!/^[a-z][a-z0-9-]{0,23}$/.test(id)) throw new McError(`people[${i}].id "${id}" must be lowercase letters, digits or dashes`);
+    if (RESERVED.has(id) || seen.has(id)) throw new McError(`people[${i}].id "${id}" is taken by a team member or reserved`);
+    seen.add(id);
+    const role = String(p.role ?? 'member');
+    if (!['owner', 'member', 'viewer'].includes(role)) throw new McError(`people[${i}].role must be owner, member or viewer`);
+    return { id, name: String(p.name ?? id), role };
   });
   const leads = cfg.team.filter((m) => m.lead);
   if (leads.length !== 1) throw new McError(`team needs exactly one lead (id "lead" or "lead: true"), found ${leads.length}`);
@@ -68,6 +85,7 @@ export function parseTeam(text) {
 }
 
 export function loadConfig(paths) {
+  if (paths._text != null) return parseTeam(paths._text);
   if (!fs.existsSync(paths.team)) {
     throw new McError(`No team file at ${paths.team}. Run "npx madcompany init" first.`);
   }

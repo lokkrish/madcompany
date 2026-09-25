@@ -32,6 +32,13 @@ library:
   sessions: true      # show your Claude Code conversations in HQ → Library
   dirs: []            # extra folders to include in the Library, e.g. [research, design]
 
+# Roles (type:) fill in title, department, domain, default model, permissions and duties:
+#   product-manager, ux-designer, ui-designer, architect, web-developer,
+#   mobile-developer, backend-developer, database-engineer, data-engineer,
+#   qa-engineer, security-engineer, devops-engineer, tech-writer
+# Anything you set below (role, domain, model, profile) wins. For a ready-made
+# 5, 10 or 20-person company: npx madcompany staff --template small|medium|large
+#
 # model: opus | sonnet | haiku | fable | inherit, or a full ID like claude-sonnet-5.
 # Change it here or in HQ → Team. The lead is your own Claude Code session,
 # so its model is whatever that session runs (/model opus, or claude --model opus).
@@ -40,22 +47,31 @@ team:
     role: Tech lead / PM
 
   - id: maya
-    role: UX designer
+    type: ux-designer
     domain: [design system, screens, navigation]
     model: sonnet
 
   - id: arjun
-    role: Backend developer
+    type: backend-developer
     domain: [Node API, auth, payments]
     also: [Postgres]
     model: sonnet
 
   - id: lena
+    type: web-developer
     role: Frontend developer
     domain: [Next.js pages, Expo screens]
     model: sonnet
 
   - id: qa
-    role: QA engineer
+    type: qa-engineer
     domain: [E2E tests, screenshots, reviews]
     model: sonnet
+
+# People who use HQ besides you (owner | member | viewer). Add them with
+# npx madcompany people add <id> --name "Name" --role member, and run
+# npx madcompany hq --share so they can sign in.
+# people:
+#   - id: priya
+#     name: Priya
+#     role: member

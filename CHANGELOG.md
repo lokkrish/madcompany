@@ -15,5 +15,9 @@ First version.
 - Claude artifacts are captured automatically: a PostToolUse hook saves each published artifact to HQ (queued while HQ is off), and past ones are found in session transcripts
 - `/mc-minutes` and the `mc_minutes` / `mc_link` tools
 - Per-agent model picker in HQ's Team page (writes `team.yaml` and regenerates the agent)
+- Role catalogue: 14 roles in 7 departments (`type:` in `team.yaml`), each with a title, domain, default model, permissions and duties
+- Team templates: `staff --template small|medium|large` for a 5, 10 or 20-person company
+- Hire and remove agents from HQ's Team page, grouped by department
+- Multi-user HQ: `people:` in `team.yaml` with owner, member and viewer roles; `people add|link|remove|list`; `hq --share` with personal sign-in links (stored hashed, HttpOnly cookie); agents and the CLI stay local-only
 - `madcompany demo` for a sample project
 - File formats: `.madcompany/team.yaml`, `log/events.jsonl` (append-only; readable copies in `log/*.md`), `ids.json`, `agents/<id>/{identity,work,comms}.md`

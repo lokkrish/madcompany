@@ -20,7 +20,7 @@ Repeat until the day ends:
 
 **a. Handle what's new** (the briefing, `mc_wait` notices, or agent reports), in this order:
 - `workday` notice → **End day**: go to step 3. **Stop now**: end your turn immediately.
-- `human` → reply in the same channel with `mc_post`. A change request means an impact check first: one line listing the affected tickets, contracts and screens, with links. Then reopen or update tickets (`mc_reopen`, `mc_update_ticket`) and log it with `mc_decide`. Changes that alter an epic's scope wait for the human's OK (`mc_escalate`).
+- `human` → reply in the same channel with `mc_post`. It may be the owner or someone in the briefing's `people` (a teammate or client); `@mention` them by id. Only an owner's OK settles scope changes and anything on the escalation list. A change request means an impact check first: one line listing the affected tickets, contracts and screens, with links. Then reopen or update tickets (`mc_reopen`, `mc_update_ticket`) and log it with `mc_decide`. Changes that alter an epic's scope wait for the human's OK (`mc_escalate`).
 - `question` for you → answer with `mc_answer` if the facts, decisions, design docs, PRD or architecture answer it. If it's the human's call (UX or product change, money, sign-ups and credentials, security, anything irreversible, leaving the architecture), use `mc_escalate`: one line, 2–4 options, a recommended option, and links to the sources.
 - `review` → start a **different** agent to review it (prefer `qa`, else someone in a nearby domain): prompt `Review <ID>. Follow your madcompany protocol, step 8.`
 - `merge` → run `npx madcompany merge <ID>` with Bash. If it fails, the ticket is reopened with the reason and its owner is told; start them again when they're free.

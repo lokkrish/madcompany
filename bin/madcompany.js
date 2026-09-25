@@ -11,12 +11,15 @@ Usage: npx madcompany <command> [options]
 
 Set up
   init [--no-skills]      Set up madcompany in this project (.madcompany/, .mcp.json, hook, skills)
-  staff                   Create the agents in .madcompany/team.yaml (.claude/agents/mc-*.md)
+  staff [--template T]    Create the agents in .madcompany/team.yaml (.claude/agents/mc-*.md);
+                          --template small|medium|large starts from a 5, 10 or 20-person team
+  people add|list|link|remove   Who else can use HQ (owner, member or viewer) and their sign-in links
   import [--epics F]      Anchor BMad planning docs and turn stories into tickets
   demo [dir]              Create a demo project with a day of simulated team activity
 
 Run
   hq [--port 4317]        Start HQ (dashboard, chat, board…) at http://127.0.0.1:4317
+     [--share]            Let teammates in: everyone signs in with a link (see "people")
   status                  One-screen summary of the team and tickets
   start-day | end-day | stop    Workday controls (also buttons in HQ)
 
@@ -41,7 +44,7 @@ async function main() {
     args: rest,
     allowPositionals: true,
     strict: false,
-    options: { port: { type: 'string' }, epics: { type: 'string' }, prd: { type: 'string' }, 'no-skills': { type: 'boolean' }, json: { type: 'boolean' } },
+    options: { port: { type: 'string' }, epics: { type: 'string' }, prd: { type: 'string' }, 'no-skills': { type: 'boolean' }, json: { type: 'boolean' }, template: { type: 'string' }, force: { type: 'boolean' }, share: { type: 'boolean' }, bind: { type: 'string' }, name: { type: 'string' }, role: { type: 'string' }, host: { type: 'string' } },
   });
 
   switch (cmd) {
@@ -53,7 +56,16 @@ async function main() {
       return;
     }
     case 'staff': {
-      const { staff } = await import('../src/setup.js');
+      const { staff, applyTemplate } = await import('../src/setup.js');
+      if (opts.template) {
+        const { connect } = await import('../src/client.js');
+        const c = await connect(paths);
+        const st = await c.call('status', 'cli');
+        await c.close();
+        const busy = [...st.in_progress, ...st.blocked, ...st.in_review].map((t) => t.assignee).filter(Boolean);
+        applyTemplate(paths, opts.template, { force: opts.force, busy });
+        console.log(`Applied the ${opts.template} team template to .madcompany/team.yaml.`);
+      }
       const cfg = staff(paths);
       console.log(`Team of ${cfg.team.length}: ${cfg.team.map((m) => m.id).join(', ')}. The lead is your main Claude Code session (/mc-start).`);
       return;
@@ -70,15 +82,58 @@ async function main() {
           // stale lock
         }
       }
-      const hq = createHq({ paths, port: Number(opts.port ?? process.env.MADCOMPANY_PORT ?? 4317) });
+      const hq = createHq({ paths, port: Number(opts.port ?? process.env.MADCOMPANY_PORT ?? 4317), share: Boolean(opts.share), bind: opts.bind ?? null });
       const port = await hq.listen();
-      console.log(`madcompany HQ: http://127.0.0.1:${port}  (project: ${root})\nPress Ctrl+C to stop.`);
+      if (opts.share) {
+        const { createAccess } = await import('../src/auth.js');
+        const os = await import('node:os');
+        const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
+        const host = opts.host ?? ips[0] ?? '127.0.0.1';
+        // so "madcompany people" can print links with the real address
+        fs.writeFileSync(paths.lock, JSON.stringify({ ...readLock(paths), host }));
+        console.log(`madcompany HQ (shared): http://${host}:${port}  (project: ${root})`);
+        console.log(`Your sign-in link (keep it private): http://${host}:${port}/#/login/${createAccess(paths).issue('you')}`);
+        console.log('Invite people with: npx madcompany people add <id> --name "Name" --role member|viewer');
+        console.log('Use a private network (e.g. Tailscale) or an HTTPS tunnel for people outside your network.');
+      } else {
+        console.log(`madcompany HQ: http://127.0.0.1:${port}  (project: ${root})`);
+      }
+      console.log('Press Ctrl+C to stop.');
       const bye = async () => {
         await hq.close();
         process.exit(0);
       };
       process.on('SIGINT', bye);
       process.on('SIGTERM', bye);
+      return;
+    }
+    case 'people': {
+      const { addPerson, removePerson } = await import('../src/setup.js');
+      const { createAccess } = await import('../src/auth.js');
+      const { readLock } = await import('../src/client.js');
+      const access = createAccess(paths);
+      const lock = readLock(paths);
+      const base = `http://${opts.host ?? lock?.host ?? '<your-address>'}:${lock?.port ?? 4317}`;
+      const [sub, id] = args;
+      if (sub === 'add') {
+        if (!id) throw new McError('Usage: madcompany people add <id> --name "Name" --role member|viewer|owner');
+        const p = addPerson(paths, { id, name: opts.name, role: opts.role ?? 'member' });
+        console.log(`Added ${p.name} (${p.role}). Their sign-in link (send it privately):\n  ${base}/#/login/${access.issue(p.id)}`);
+        if (!lock?.share) console.log('HQ must run with --share for them to reach it.');
+      } else if (sub === 'link') {
+        if (!id) throw new McError('Usage: madcompany people link <id>   (use "you" for your own)');
+        if (id !== 'you' && !loadConfig(paths).people.some((x) => x.id === id)) throw new McError(`No person "${id}".`);
+        console.log(`New sign-in link for ${id} (the old one stops working):\n  ${base}/#/login/${access.issue(id)}`);
+      } else if (sub === 'remove') {
+        if (!id) throw new McError('Usage: madcompany people remove <id>');
+        removePerson(paths, id);
+        access.revoke(id);
+        console.log(`Removed ${id}; their link no longer works.`);
+      } else {
+        const cfg = loadConfig(paths);
+        console.log(`you (owner)${access.hasLink('you') ? '' : ' · no link yet'}`);
+        for (const x of cfg.people) console.log(`${x.id} · ${x.name} (${x.role})${access.hasLink(x.id) ? '' : ' · no link yet'}`);
+      }
       return;
     }
     case 'demo': {

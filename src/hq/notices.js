@@ -6,6 +6,7 @@
 export function createNotices(core) {
   const { store, config } = core;
   const lead = config.leadId;
+  const nameOf = (id) => (id === 'you' ? 'The owner' : config.people.find((p) => p.id === id)?.name ?? id);
   const list = [];
   const waiters = new Set();
   let n = 0;
@@ -30,9 +31,9 @@ export function createNotices(core) {
     const t = d.id ? store.state.tickets[d.id] : null;
     switch (ev.type) {
       case 'msg.post': {
-        if (ev.by === 'you') push('human', `You wrote in #${d.channel}: ${d.text}`, { channel: d.channel });
+        if (core.isHuman(ev.by)) push('human', `${nameOf(ev.by)} wrote in #${d.channel}: ${d.text}`, { channel: d.channel });
         for (const m of d.mentions ?? []) {
-          if (m !== lead && m !== 'you' && m !== ev.by && !d.channel.startsWith('dm:')) {
+          if (m !== lead && !core.isHuman(m) && m !== ev.by && !d.channel.startsWith('dm:')) {
             push('wake', `@${m} was mentioned by ${ev.by} in #${d.channel}. If ${m} is idle, start them to reply.`, { agent: m });
           }
         }
@@ -49,14 +50,14 @@ export function createNotices(core) {
       case 'question.answer': {
         const q = store.state.questions[d.id];
         if (!q) break;
-        if (ev.by === 'you') push('answer', `You answered ${q.id}: ${d.answer}`, { q: q.id });
+        if (core.isHuman(ev.by)) push('answer', `${nameOf(ev.by)} answered ${q.id}: ${d.answer}`, { q: q.id });
         const unblocked = readyAfter(q.id);
         for (const u of unblocked) push('ready', `${u.id} can resume (${q.id} answered). Restart ${u.assignee ?? 'an agent'} on it.`, { ticket: u.id, agent: u.assignee });
-        if (!unblocked.length && q.from !== 'you' && q.from !== lead) push('wake', `${q.id} was answered; ${q.from} may want it.`, { agent: q.from, q: q.id });
+        if (!unblocked.length && !core.isHuman(q.from) && q.from !== lead) push('wake', `${q.id} was answered; ${q.from} may want it.`, { agent: q.from, q: q.id });
         break;
       }
       case 'ticket.create':
-        if (ev.by === 'you') push('human', `New ${d.kind} ticket ${d.id}: ${d.title}`, { ticket: d.id });
+        if (core.isHuman(ev.by)) push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}`, { ticket: d.id });
         break;
       case 'ticket.status':
         if (!t) break;

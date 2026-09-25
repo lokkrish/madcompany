@@ -12,7 +12,9 @@ import { createNotices } from './notices.js';
 import { createViewWriter } from './views.js';
 import { buildMcpServer } from './mcp.js';
 import { renderCode, renderMarkdown } from './render.js';
-import { setMemberModel, MODEL_CHOICES } from '../setup.js';
+import { setMemberModel, MODEL_CHOICES, hireMember, removeMember, addPerson, removePerson } from '../setup.js';
+import { ROLES, TEMPLATES, DEPARTMENTS } from '../roles.js';
+import { createAccess, readCookie } from '../auth.js';
 import { createLibrary } from './library.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +26,7 @@ const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
 const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink']);
 
-export function createHq({ paths, port = 4317, quiet = false }) {
+export function createHq({ paths, port = 4317, quiet = false, share = false, bind = null }) {
   const config = loadConfig(paths);
   const store = new Store(paths.events);
   const core = createCore({ store, config, paths });
@@ -62,31 +64,97 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     }, 120);
   });
 
-  const origin = () => [`http://127.0.0.1:${actualPort()}`, `http://localhost:${actualPort()}`];
   let server;
   const actualPort = () => server?.address()?.port ?? port;
+  const access = createAccess(paths);
+  const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+  // a tunnel on this machine (ngrok, cloudflared…) connects from loopback too, and may
+  // rewrite Host to localhost, so anything that came through a proxy is not local
+  const PROXIED = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-ip'];
+  const fromThisMachine = (req) =>
+    LOOPBACK.has(req.socket.remoteAddress) && /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host ?? '') && !PROXIED.some((h) => h in req.headers);
+  const OWNER = () => ({ id: 'you', name: config.owner, role: 'owner' });
+  const LEVEL = { viewer: 1, member: 2, owner: 3 };
 
-  function guard(req, res, { widget = false, cli = false } = {}) {
+  /** Who is asking. Locally that's you; in shared mode everyone signs in with their link. */
+  function whoIs(req) {
+    if (!share && fromThisMachine(req)) return OWNER();
+    const person = access.verify(readCookie(req, 'mc_auth'));
+    if (!person) return null;
+    if (person === 'you') return OWNER();
+    const p = config.people.find((x) => x.id === person);
+    return p ? { id: p.id, name: p.name, role: p.role } : null;
+  }
+
+  function guard(req, res, { widget = false, local = false } = {}) {
     const host = req.headers.host ?? '';
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return deny(res, 421, 'Wrong host');
+    // agents, the CLI and the feedback widget only ever talk to HQ from this machine
+    if (local && !fromThisMachine(req)) return deny(res, 403, 'Only from this machine');
+    if (!share && !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return deny(res, 421, 'Wrong host');
     const o = req.headers.origin;
-    if (cli && req.headers['x-madcompany-cli'] !== '1') return deny(res, 403, 'CLI only');
     if (!o) return true;
-    if (origin().includes(o)) return true;
+    const same = share ? [`http://${host}`, `https://${host}`] : [`http://127.0.0.1:${actualPort()}`, `http://localhost:${actualPort()}`];
+    if (same.includes(o)) return true;
     if (widget && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return true;
     return deny(res, 403, 'Cross-origin request refused');
   }
 
+  // team.yaml edited outside HQ (CLI, your editor): pick it up on the next request
+  let teamMtime = fs.statSync(paths.team).mtimeMs;
+  function maybeReload() {
+    try {
+      const m = fs.statSync(paths.team).mtimeMs;
+      if (m !== teamMtime) {
+        teamMtime = m;
+        refreshTeam();
+      }
+    } catch {
+      // mid-write or invalid: keep the last good team
+    }
+  }
+
+  function refreshTeam() {
+    const fresh = loadConfig(paths);
+    teamMtime = fs.statSync(paths.team).mtimeMs;
+    config.team.splice(0, config.team.length, ...fresh.team);
+    config.people.splice(0, config.people.length, ...fresh.people);
+    config.leadId = fresh.leadId;
+    config.max_parallel = fresh.max_parallel;
+  }
+  const busyAgents = () => [...new Set(Object.values(store.state.tickets).filter((t) => ['in_progress', 'blocked', 'in_review'].includes(t.status)).map((t) => t.assignee))];
+
   async function handle(req, res) {
+    maybeReload();
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
 
     if (p === '/api/feedback' && req.method === 'OPTIONS') {
-      if (!guard(req, res, { widget: true })) return;
+      if (!guard(req, res, { widget: true, local: true })) return;
       res.writeHead(204, { 'access-control-allow-origin': req.headers.origin ?? '*', 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type', vary: 'Origin' });
       return res.end();
     }
-    if (!guard(req, res, { widget: p === '/api/feedback' || p === '/widget.js', cli: p === '/api/cli' })) return;
+    const localOnly = ['/mcp', '/api/cli', '/api/refresh-ids', '/api/feedback', '/widget.js'].includes(p);
+    if (!guard(req, res, { widget: p === '/api/feedback' || p === '/widget.js', local: localOnly })) return;
+    if (p === '/api/cli' && req.headers['x-madcompany-cli'] !== '1') return deny(res, 403, 'CLI only');
+
+    // the app shell and sign-in need no identity; everything with data does
+    const isStatic = req.method === 'GET' && (p === '/' || p === '/index.html' || /^\/[a-z-]+\.(js|css|svg)$/.test(p));
+    if (p === '/api/login' && req.method === 'POST') {
+      const body = await readJson(req);
+      const person = access.verify(body.token);
+      const known = person === 'you' || config.people.some((x) => x.id === person);
+      if (!person || !known) return json(res, 401, { error: 'That sign-in link is not valid any more. Ask the owner for a new one.' });
+      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      res.setHeader('set-cookie', `mc_auth=${encodeURIComponent(body.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${secure}`);
+      return json(res, 200, { ok: true });
+    }
+    if (p === '/api/logout' && req.method === 'POST') {
+      res.setHeader('set-cookie', 'mc_auth=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+      return json(res, 200, { ok: true });
+    }
+    const who = localOnly || isStatic || p === '/api/health' ? null : whoIs(req);
+    if (!localOnly && !isStatic && p !== '/api/health' && !who) return json(res, 401, { error: 'Sign in with your link from the HQ owner.', share });
+    const need = (level) => (LEVEL[who?.role] ?? 0) >= level || (deny(res, 403, level === 3 ? 'Only an owner can do that.' : 'Viewers can read but not change anything.'), false);
 
     if (p === '/mcp') {
       if (req.method !== 'POST') return json(res, 405, { error: 'Use POST' });
@@ -103,7 +171,10 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     }
 
     if (req.method === 'GET') {
-      if (p === '/api/health') return json(res, 200, { ok: true, version: VERSION, project: config.project, root: paths.root });
+      if (p === '/api/health') return json(res, 200, { ok: true, version: VERSION, project: config.project, ...(share ? { share: true } : { root: paths.root }) });
+      if (p === '/api/me') return json(res, 200, { ...who, share });
+      if (p === '/api/roles') return json(res, 200, { roles: ROLES, templates: TEMPLATES, departments: DEPARTMENTS });
+      if (p === '/api/people') return json(res, 200, { people: [{ ...OWNER(), hasLink: access.hasLink('you') }, ...config.people.map((x) => ({ ...x, hasLink: access.hasLink(x.id) }))] });
       if (p === '/api/state') return json(res, 200, snapshot());
       if (p === '/api/ids') return json(res, 200, registry());
       if (p === '/api/file') return fileView(res, url.searchParams.get('path') ?? '');
@@ -143,22 +214,60 @@ export function createHq({ paths, port = 4317, quiet = false }) {
 
     if (req.method === 'POST') {
       const body = await readJson(req);
-      if (p === '/api/messages') return ok(res, () => core.post('you', { channel: body.channel, text: body.text }));
-      if (p === '/api/answer') return ok(res, () => core.answer('you', body.q, body.answer));
-      if (p === '/api/change') return ok(res, () => core.change({ text: body.text }));
-      if (p === '/api/links') return ok(res, () => core.addLink('you', body));
+      if (p === '/api/messages') return need(2) && ok(res, () => core.post(who.id, { channel: body.channel, text: body.text }));
+      if (p === '/api/answer') return need(2) && ok(res, () => core.answer(who.id, body.q, body.answer));
+      if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text }, who.id));
+      if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
       if (p === '/api/team/model') {
-        return ok(res, () => {
+        return need(3) && ok(res, () => {
           const out = setMemberModel(paths, body.id, body.model);
           config.team.find((m) => m.id === out.id).model = out.model;
-          store.append('team.model', 'you', { agent: out.id, model: out.model });
+          store.append('team.model', who.id, { agent: out.id, model: out.model });
           return out;
         });
       }
+      if (p === '/api/team/hire') {
+        return need(3) && ok(res, () => {
+          const out = hireMember(paths, body);
+          refreshTeam();
+          store.append('team.hire', who.id, out);
+          return out;
+        });
+      }
+      if (p === '/api/team/remove') {
+        return need(3) && ok(res, () => {
+          const out = removeMember(paths, body.id, { busy: busyAgents() });
+          refreshTeam();
+          store.append('team.remove', who.id, out);
+          return out;
+        });
+      }
+      if (p === '/api/people') {
+        return need(3) && ok(res, () => {
+          const person = addPerson(paths, body);
+          refreshTeam();
+          return { person, link: `/#/login/${access.issue(person.id)}` };
+        });
+      }
+      if (p === '/api/people/link') {
+        return need(3) && ok(res, () => {
+          if (body.id !== 'you' && !config.people.some((x) => x.id === body.id)) throw new McError(`No person "${body.id}".`);
+          return { link: `/#/login/${access.issue(body.id)}` };
+        });
+      }
+      if (p === '/api/people/remove') {
+        return need(3) && ok(res, () => {
+          removePerson(paths, body.id);
+          access.revoke(body.id);
+          refreshTeam();
+          return { ok: true };
+        });
+      }
       if (p === '/api/workday') {
+        if (!need(3)) return;
         const fn = { end: core.requestEndDay, stop: core.stopNow }[body.action];
         if (!fn) return json(res, 400, { error: 'action must be end or stop' });
-        return ok(res, () => fn('you'));
+        return ok(res, () => fn(who.id));
       }
       if (p === '/api/feedback') {
         res.setHeader('access-control-allow-origin', req.headers.origin ?? '*');
@@ -178,7 +287,8 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     return {
       seq: s.seq,
       dashboard: core.dashboard(),
-      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel, models: MODEL_CHOICES },
+      config: { project: config.project, owner: config.owner, lead: config.leadId, preview: config.preview, max_parallel: config.max_parallel, models: MODEL_CHOICES, share },
+      people: [OWNER(), ...config.people],
       tickets: s.tickets,
       messages: s.messages.slice(-2000),
       decisions: s.decisions,
@@ -245,9 +355,9 @@ export function createHq({ paths, port = 4317, quiet = false }) {
     listen() {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(port, '127.0.0.1', () => {
+        server.listen(port, share ? bind ?? '0.0.0.0' : '127.0.0.1', () => {
           ensureDir(paths.run);
-          fs.writeFileSync(paths.lock, JSON.stringify({ pid: process.pid, port: actualPort(), started: new Date().toISOString() }));
+          fs.writeFileSync(paths.lock, JSON.stringify({ pid: process.pid, port: actualPort(), share, started: new Date().toISOString() }));
           resolve(actualPort());
         });
       });

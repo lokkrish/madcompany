@@ -9,7 +9,17 @@ const $main = document.getElementById('main');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const COLORS = ['#1f6feb', '#8250df', '#1a7f37', '#bf3989', '#9a6700', '#0a7ea4', '#cf222e', '#6e7781'];
 const colorFor = (id) => COLORS[Math.abs([...String(id)].reduce((h, c) => (h * 33) ^ c.charCodeAt(0), 5381)) % COLORS.length];
-const avatar = (id) => (id === 'you' ? '<span class="avatar you">Y</span>' : `<span class="avatar" style="background:${colorFor(id)}">${esc(String(id)[0]?.toUpperCase())}</span>`);
+let ME = { id: 'you', name: 'You', role: 'owner' };
+const LEVEL = { viewer: 1, member: 2, owner: 3 };
+const can = (need) => (LEVEL[ME.role] ?? 0) >= LEVEL[need];
+const personOf = (id) => (S?.people ?? []).find((p) => p.id === id);
+const isHumanId = (id) => id === 'you' || Boolean(personOf(id));
+const nameOf = (id) => (id === ME.id ? 'You' : id === 'you' ? S?.config.owner ?? 'Owner' : personOf(id)?.name ?? id);
+const avatar = (id) =>
+  isHumanId(id)
+    ? `<span class="avatar you" title="${esc(nameOf(id))}">${esc((nameOf(id) === 'You' ? ME.name : nameOf(id))[0]?.toUpperCase() ?? 'Y')}</span>`
+    : `<span class="avatar" style="background:${colorFor(id)}">${esc(String(id)[0]?.toUpperCase())}</span>`;
+const dmWith = (id) => `dm:${[id, ME.id].sort().join('+')}`;
 const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', blocked: 'Blocked', in_review: 'In review', done: 'Done' };
 
 function ago(ts) {
@@ -192,8 +202,8 @@ function dashboard() {
   return `
   <div class="top">
     <div class="grow"><h1>${esc(d.project.name)}</h1><div class="sub">Workday ${pill(wd, wd === 'on' ? 'ON' : wd.toUpperCase())} ${d.workday.since ? `since ${clock(d.workday.since)}` : ''}</div></div>
-    ${wd === 'on' ? '<button data-act="end">End day</button>' : ''}
-    ${wd === 'on' || wd === 'ending' ? '<button class="danger" data-act="stop">Stop now</button>' : ''}
+    ${wd === 'on' && can('owner') ? '<button data-act="end">End day</button>' : ''}
+    ${(wd === 'on' || wd === 'ending') && can('owner') ? '<button class="danger" data-act="stop">Stop now</button>' : ''}
     ${wd === 'off' || wd === 'stopped' ? '<span class="sub">Start the day with <code>/mc-start</code> in Claude Code.</span>' : ''}
   </div>
   <div class="grid g3">
@@ -220,12 +230,12 @@ function channelsList() {
   };
 }
 function channelLabel(c) {
-  if (c.startsWith('dm:')) return c.slice(3).split('+').join(' ↔ ');
+  if (c.startsWith('dm:')) return c.slice(3).split('+').map(nameOf).join(' ↔ ');
   if (c.startsWith('ticket:')) return c.slice(7);
   return `# ${c}`;
 }
 function messageHtml(m) {
-  return `<div class="msg ${m.by === 'you' ? 'you' : ''}" id="x-${esc(m.id)}">${avatar(m.by)}<div class="body"><div><b>${esc(m.by)}</b> <span class="time">${clock(m.ts)}</span></div><div class="text">${linkify(m.text)}</div></div></div>`;
+  return `<div class="msg ${m.by === ME.id ? 'you' : ''}" id="x-${esc(m.id)}">${avatar(m.by)}<div class="body"><div><b>${esc(nameOf(m.by))}</b> <span class="time">${clock(m.ts)}</span></div><div class="text">${linkify(m.text)}</div></div></div>`;
 }
 function chat(r) {
   const current = r.parts.slice(1).join('/') || 'general';
@@ -244,7 +254,8 @@ function chat(r) {
     <div class="card messages">
       <div class="row" style="margin-bottom:6px"><h2 style="margin:0">${esc(channelLabel(current))}</h2>${current.startsWith('ticket:') ? ` <a href="#/ticket/${esc(current.slice(7))}">open ticket</a>` : ''}</div>
       <div class="msgs" id="msgs">${msgs.map(messageHtml).join('') || '<p class="empty">No messages yet.</p>'}</div>
-      <form class="composer" data-form="post" data-channel="${esc(current)}">
+      ${can('member') ? '' : '<p class="sub">You have read-only access.</p>'}
+      <form class="composer" data-form="post" data-channel="${esc(current)}" ${can('member') ? '' : 'hidden'}>
         <textarea name="text" data-keep rows="2" placeholder="Message ${esc(channelLabel(current))} — @mention someone, reference FR12, APP-4…" aria-label="Message"></textarea>
         <button class="primary" type="submit">Send</button>
       </form>
@@ -315,7 +326,7 @@ function ticketView(r) {
   </div>
   <div class="card timeline" style="margin-top:14px"><h3>Activity</h3>${t.activity.map((a) => `<div class="item"><span class="time">${clock(a.ts)}</span><b>${esc(a.by)}</b><span>${linkify(a.text)}</span></div>`).join('')}</div>
   <div class="card" style="margin-top:14px"><h3>Thread</h3>${thread.map(messageHtml).join('') || '<p class="empty">No discussion yet.</p>'}
-    <form class="composer" data-form="post" data-channel="ticket:${esc(t.id)}"><textarea name="text" data-keep rows="2" placeholder="Comment on ${esc(t.id)} — @mention the assignee" aria-label="Comment"></textarea><button class="primary" type="submit">Send</button></form>
+    <form class="composer" data-form="post" data-channel="ticket:${esc(t.id)}" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Comment on ${esc(t.id)} — @mention the assignee" aria-label="Comment"></textarea><button class="primary" type="submit">Send</button></form>
   </div>`;
 }
 
@@ -331,8 +342,8 @@ function inbox(r) {
         <div class="row"><b>${esc(q.id)}</b><span class="sub">from ${esc(q.from)} · ${clock(q.ts)}</span>${q.ticket ? ` · ${idLink(q.ticket)}` : ''}</div>
         <div style="font-size:15px">${linkify(q.question)}</div>
         ${q.links.length ? `<div class="sub">Sources: ${q.links.map(linkify).join(', ')}</div>` : ''}
-        <div class="opts">${q.options.map((o) => `<button class="${o === q.recommended ? 'rec' : ''}" data-answer="${esc(q.id)}" data-value="${esc(o)}">${esc(o)}${o === q.recommended ? ' · Recommended' : ''}</button>`).join('')}</div>
-        <form class="row" data-form="answer" data-q="${esc(q.id)}"><input name="answer" placeholder="Or type your own answer" style="flex:1" aria-label="Your answer"><button type="submit">Answer</button></form>
+        <div class="opts" ${can('member') ? '' : 'hidden'}>${q.options.map((o) => `<button class="${o === q.recommended ? 'rec' : ''}" data-answer="${esc(q.id)}" data-value="${esc(o)}">${esc(o)}${o === q.recommended ? ' · Recommended' : ''}</button>`).join('')}</div>
+        <form class="row" data-form="answer" data-q="${esc(q.id)}" ${can('member') ? '' : 'hidden'}><input name="answer" placeholder="Or type your own answer" style="flex:1" aria-label="Your answer"><button type="submit">Answer</button></form>
       </div>`,
         )
         .join('')
@@ -342,7 +353,7 @@ function inbox(r) {
   <div class="top"><h1 class="grow">Inbox</h1></div>
   <div class="stack">${openHtml}</div>
   <div class="card" style="margin-top:14px"><h3>Request a change</h3>
-    <form class="stack" data-form="change"><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead will post an impact check." aria-label="Change request"></textarea><button class="primary" type="submit">Send to the lead</button></form>
+    <form class="stack" data-form="change" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead will post an impact check." aria-label="Change request"></textarea><button class="primary" type="submit">Send to the lead</button></form>
   </div>
   <div class="grid g2" style="margin-top:14px">
     <div class="card feed"><h3>Facts (your answers)</h3>${S.facts.map((f) => `<div class="item" id="x-${esc(f.id)}"><b>${esc(f.id)}</b> ${linkify(f.text)}</div>`).join('') || '<p class="empty">None yet.</p>'}</div>
@@ -365,6 +376,7 @@ function decisions() {
 
 function modelPicker(m) {
   if (m.lead) return `<div class="sub">Model: your Claude Code session's (change it with <code>/model</code>)</div>`;
+  if (!can('owner')) return `<div class="sub">Model: ${esc(m.model)}</div>`;
   const choices = S.config.models.includes(m.model) ? S.config.models : [...S.config.models, m.model];
   const label = { opus: 'Opus (strongest)', sonnet: 'Sonnet (balanced)', haiku: 'Haiku (fastest, cheapest)', fable: 'Fable', inherit: "Same as your session" };
   return `<label class="row sub">Model <select data-model="${esc(m.id)}" aria-label="Model for ${esc(m.id)}">${choices
@@ -372,13 +384,13 @@ function modelPicker(m) {
     .join('')}</select></label>`;
 }
 
+let ROLES = null;
 function team(r) {
   const focus = r.parts[1];
-  const cards = S.dashboard.team
-    .map((m) => {
-      const envInfo = S.envs[m.id];
-      const h = m.handoff;
-      return `<div class="card stack" id="x-${esc(m.id)}">
+  const card = (m) => {
+    const envInfo = S.envs[m.id];
+    const h = m.handoff;
+    return `<div class="card stack" id="x-${esc(m.id)}">
       <div class="row">${avatar(m.id)}<b>${esc(m.id)}</b>${m.lead ? pill('in_review', 'lead') : ''}<span class="grow"></span><span class="row"><span class="dot ${m.status}"></span>${esc(m.status)}</span></div>
       <div>${esc(m.role)}</div>
       <div class="sub">${[m.domain.length && `Domain: ${esc(m.domain.join(', '))}`, m.also.length && `also ${esc(m.also.join(', '))}`].filter(Boolean).join(' · ')}</div>
@@ -386,13 +398,33 @@ function team(r) {
       <div>${m.ticket ? `${m.status === 'blocked' ? 'Parked' : 'Working on'} ${idLink(m.ticket)}` : '<span class="sub">No current ticket</span>'} · <a href="#/board?agent=${esc(m.id)}">their tickets</a></div>
       ${envInfo ? `<div class="sub mono">ports web ${envInfo.ports.web}, api ${envInfo.ports.api}, expo ${envInfo.ports.expo} · db ${esc(envInfo.db)}</div>` : ''}
       ${h ? `<div class="callout"><b>Last handoff</b> ${clock(h.ts)}<br>Done: ${linkify(h.done)}<br>Next: ${linkify(h.next)}${h.waitingOn ? `<br>Waiting on: ${linkify(h.waitingOn)}` : ''}</div>` : ''}
-      <div class="row"><a href="#/chat/${encodeURIComponent(`dm:${[m.id, 'you'].sort().join('+')}`)}">Message</a> · <button data-memory="${esc(m.id)}">Memory</button></div>
+      <div class="row"><a href="#/chat/${encodeURIComponent(dmWith(m.id))}">Message</a> · <button data-memory="${esc(m.id)}">Memory</button>${can('owner') && !m.lead ? `<span class="grow"></span><button class="danger" data-remove="${esc(m.id)}">Remove</button>` : ''}</div>
       <div class="memory" id="mem-${esc(m.id)}"></div>
     </div>`;
+  };
+  const order = ['Leadership', 'Product', 'Design', 'Engineering', 'Quality', 'Operations', 'Docs', 'Other'];
+  const byDept = {};
+  for (const m of S.dashboard.team) (byDept[m.dept ?? 'Other'] ??= []).push(m);
+  const depts = order
+    .filter((d) => byDept[d])
+    // small departments sit side by side; big ones take a full row
+    .map((d) => {
+      const n = Math.min(byDept[d].length, 3);
+      return `<div class="dept" style="--n:${n}"><h3>${esc(d)} <span class="count">${byDept[d].length}</span></h3><div class="grid">${byDept[d].map(card).join('')}</div></div>`;
     })
     .join('');
+  const hire = can('owner')
+    ? `<form class="card row" data-form="hire" style="flex-wrap:wrap"><b>Hire</b><select name="type" aria-label="Role">${ROLES ? Object.entries(ROLES.roles).filter(([k]) => k !== 'tech-lead').map(([k, v]) => `<option value="${esc(k)}">${esc(v.title)} · ${esc(v.dept)}</option>`).join('') : '<option>Loading…</option>'}</select><input name="id" placeholder="id (optional, e.g. backend-4)" aria-label="Team id"><select name="model" aria-label="Model"><option value="">Role's default model</option>${S.config.models.map((x) => `<option>${esc(x)}</option>`).join('')}</select><button class="primary" type="submit">Hire</button><span class="sub">Restart Claude Code after hiring so the new agent loads.</span></form>`
+    : '';
+  const people = S.people ?? [];
+  const peopleHtml = `<div class="card stack"><h3>People <span class="count">${people.length}</span></h3>
+    ${people.map((p) => `<div class="row">${avatar(p.id)}<b>${esc(p.id === ME.id ? `${p.name} (you)` : p.name)}</b>${pill(p.role === 'owner' ? 'in_review' : p.role === 'member' ? 'in_progress' : 'todo', p.role)}<span class="grow"></span>${can('owner') && S.config.share ? `<button data-link="${esc(p.id)}">New sign-in link</button>` : ''}${can('owner') && p.id !== 'you' ? `<button class="danger" data-unperson="${esc(p.id)}">Remove</button>` : ''}</div>`).join('')}
+    ${can('owner') ? `<form class="row" data-form="invite" style="flex-wrap:wrap"><input name="id" placeholder="id, e.g. priya" aria-label="Person id"><input name="name" placeholder="Name" aria-label="Name"><select name="role" aria-label="Access"><option value="member">Member: chat, answer, request changes</option><option value="viewer">Viewer: read only</option><option value="owner">Owner: everything</option></select><button type="submit">Invite</button></form>
+    <p class="sub">${S.config.share ? 'People sign in with their link. Send it privately.' : 'Teammates can reach HQ once you run <code>npx madcompany hq --share</code>.'}</p>
+    <div id="invite-link"></div>` : ''}</div>`;
   setTimeout(() => focus && document.querySelector(`[data-memory="${CSS.escape(focus)}"]`)?.click(), 0);
-  return `<div class="top"><h1 class="grow">Team</h1><span class="sub">Up to ${S.config.max_parallel} agents work at once.</span></div><div class="grid g3">${cards}</div>`;
+  if (!ROLES) api('/api/roles').then((x) => { ROLES = x; if (route().name === 'team') render(); });
+  return `<div class="top"><h1 class="grow">Team</h1><span class="sub">${S.dashboard.team.length} agents · up to ${S.config.max_parallel} work at once</span></div>${hire}<div class="depts">${depts}</div><div style="margin-top:14px">${peopleHtml}</div>`;
 }
 
 function preview() {
@@ -482,7 +514,7 @@ function libraryView(r) {
       const cat = lib.categories.find((c) => c.id === current);
       let body;
       if (cat) {
-        const addLink = cat.id === 'links'
+        const addLink = cat.id === 'links' && can('member')
           ? `<form class="row lib-add" data-form="link"><input name="title" placeholder="Title (e.g. Checkout flow artifact)" aria-label="Link title"><input name="url" placeholder="https://claude.ai/…" aria-label="URL" style="flex:2"><button class="primary" type="submit">Save link</button></form>`
           : '';
         const minutesHint = cat.id === 'meetings' ? '<p class="sub">After any planning conversation in Claude Code, run <code>/mc-minutes</code> to add its minutes here.</p>' : '';
@@ -607,7 +639,7 @@ function wire(r) {
   );
   $main.querySelector('[data-act="dm"]')?.addEventListener('click', () => {
     const to = document.getElementById('dm-to').value;
-    location.hash = `#/chat/${encodeURIComponent(`dm:${[to, 'you'].sort().join('+')}`)}`;
+    location.hash = `#/chat/${encodeURIComponent(dmWith(to))}`;
   });
   $main.querySelectorAll('form[data-form="post"]').forEach((f) => {
     const ta = f.querySelector('textarea');
@@ -657,6 +689,39 @@ function wire(r) {
       box.innerHTML = ['identity', 'work', 'comms'].map((k) => `<h3>${k}</h3><pre>${esc(m[k] || '(empty)')}</pre>`).join('');
     }),
   );
+  $main.querySelector('form[data-form="hire"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    act(() => api('/api/team/hire', { type: f.type.value, id: f.id.value.trim() || undefined, model: f.model.value || undefined }));
+  });
+  $main.querySelectorAll('[data-remove]').forEach((b) =>
+    b.addEventListener('click', () => confirm(`Remove ${b.dataset.remove} from the team? Their memory files are kept.`) && act(() => api('/api/team/remove', { id: b.dataset.remove }))),
+  );
+  const showLink = (link) => {
+    const box = document.getElementById('invite-link');
+    if (box) box.innerHTML = `<div class="callout">Send this link privately. It signs them in:<br><code>${esc(location.origin + link)}</code></div>`;
+  };
+  $main.querySelector('form[data-form="invite"]')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      const out = await api('/api/people', { id: f.id.value.trim(), name: f.name.value.trim(), role: f.role.value });
+      await refresh();
+      showLink(out.link);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  $main.querySelectorAll('[data-link]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Make a new sign-in link? The old one stops working.')) return;
+      const out = await api('/api/people/link', { id: b.dataset.link });
+      showLink(out.link);
+    }),
+  );
+  $main.querySelectorAll('[data-unperson]').forEach((b) =>
+    b.addEventListener('click', () => confirm(`Remove ${b.dataset.unperson}? Their link stops working.`) && act(() => api('/api/people/remove', { id: b.dataset.unperson }))),
+  );
   $main.querySelectorAll('select[data-model]').forEach((sel) =>
     sel.addEventListener('change', () => act(() => api('/api/team/model', { id: sel.dataset.model, model: sel.value }))),
   );
@@ -682,9 +747,39 @@ document.getElementById('side-search')?.addEventListener('submit', (e) => {
   const q = e.target.q.value.trim();
   if (q) location.hash = `#/search?q=${encodeURIComponent(q)}`;
 });
-window.addEventListener('hashchange', render);
-refresh()
-  .then(live)
-  .catch((e) => {
-    $main.innerHTML = `<p class="empty">Could not reach HQ: ${esc(e.message)}</p>`;
+// a sign-in link opened in a tab that already shows HQ only changes the hash
+window.addEventListener('hashchange', () => (/^#\/login\//.test(location.hash) ? location.reload() : render()));
+
+async function signIn() {
+  const m = /^#\/login\/([A-Za-z0-9_-]+)$/.exec(location.hash);
+  if (m) {
+    try {
+      await api('/api/login', { token: m[1] });
+    } catch (e) {
+      return showSignIn(e.message);
+    }
+    history.replaceState(null, '', '/#/');
+  }
+  const res = await fetch('/api/me');
+  if (res.status === 401) return showSignIn();
+  ME = await res.json();
+  const foot = document.querySelector('.side-foot');
+  if (ME.share) foot.insertAdjacentHTML('beforebegin', `<div class="me sub">Signed in as <b>${esc(ME.name)}</b> · ${esc(ME.role)} · <a href="#" id="sign-out">Sign out</a></div>`);
+  document.getElementById('sign-out')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    await api('/api/logout', {});
+    location.reload();
   });
+  await refresh();
+  live();
+}
+
+function showSignIn(msg) {
+  document.querySelector('.side').hidden = true;
+  document.querySelector('.shell').classList.add('solo');
+  $main.innerHTML = `<div class="card signin"><h1>madcompany HQ</h1><p>${esc(msg ?? 'Sign in with the link the HQ owner sent you.')}</p><p class="sub">Ask the owner for a new link if yours stopped working.</p></div>`;
+}
+
+signIn().catch((e) => {
+  $main.innerHTML = `<p class="empty">Could not reach HQ: ${esc(e.message)}</p>`;
+});
