@@ -78,6 +78,32 @@ export function renderHumanHelp(state) {
   return out.join('\n') + '\n';
 }
 
+/** Requirements defined in HQ and amendments to any requirement, each with the change behind it. */
+export function renderRequirements(state) {
+  const reqs = Object.values(state.requirements ?? {});
+  const amendments = state.amendments ?? [];
+  const out = ['# Requirements from HQ', '', 'Requirements the team defined (from the brief, the MVP scope or a change request) and amendments to existing ones. The PRD is never edited; where a requirement was amended, the latest amendment is what holds.'];
+  for (const r of reqs) {
+    out.push('', `## <a id="${r.id.toLowerCase()}"></a>${r.id}: ${r.title}`, '');
+    out.push(`- **Kind:** ${r.kind} · **Added by:** ${r.by}, ${day(r.ts)}${r.change ? ` · **Change:** [${r.change}](board.md#${r.change.toLowerCase()})` : ''}${r.extends?.length ? ` · **Extends:** ${r.extends.join(', ')}` : ''}${r.source ? ` · **Source:** ${r.source}` : ''}`);
+    out.push('', r.text);
+  }
+  if (amendments.length) {
+    out.push('', '## Amendments', '');
+    for (const a of amendments) out.push(`- **${a.id}**, ${day(a.ts)} by ${a.by}${a.change ? ` for [${a.change}](board.md#${a.change.toLowerCase()})` : ''}: ${esc(a.text)}`);
+  }
+  return out.join('\n') + '\n';
+}
+
+/** What team members noted about stories and requirements, by what it's about. */
+export function renderNotes(state) {
+  const out = ['# Notes', '', 'What team members know about a story, requirement or ticket. Agents add them with mc_note; mc_ref shows them under the ID.'];
+  for (const n of state.notes ?? []) {
+    out.push('', `## <a id="${n.id.toLowerCase()}"></a>${n.id}: ${n.about.join(', ')}`, '', `- **By:** ${n.by}, ${day(n.ts)} · **Scope:** ${n.scope}`, '', n.text);
+  }
+  return out.join('\n') + '\n';
+}
+
 export function renderChannel(channel, messages) {
   const out = [`# #${channel}`, ''];
   for (const m of messages) out.push(`**${m.by}** · ${day(m.ts)}  `, m.text, '');
@@ -97,6 +123,8 @@ export function createViewWriter(core, { delayMs = 400, onWritten } = {}) {
     fs.writeFileSync(path.join(paths.log, 'decisions.md'), renderDecisions(s));
     fs.writeFileSync(path.join(paths.log, 'questions.md'), renderQuestions(s));
     if (Object.keys(s.help ?? {}).length) fs.writeFileSync(path.join(paths.dir, 'human-help.md'), renderHumanHelp(s));
+    if (Object.keys(s.requirements ?? {}).length || s.amendments?.length) fs.writeFileSync(path.join(paths.log, 'requirements.md'), renderRequirements(s));
+    if (s.notes?.length) fs.writeFileSync(path.join(paths.log, 'notes.md'), renderNotes(s));
     for (const c of dirtyChannels) {
       fs.writeFileSync(path.join(paths.chat, channelFile(c)), renderChannel(c, s.messages.filter((m) => m.channel === c)));
     }

@@ -57,7 +57,19 @@ export function createNotices(core) {
         break;
       }
       case 'ticket.create':
-        if (core.isHuman(ev.by)) push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}`, { ticket: d.id });
+        if (core.isHuman(ev.by)) {
+          const mapped = d.amends?.length || d.extends?.length;
+          const map = mapped
+            ? ` ${core.index.impact(d.id).line} Post the impact check and handle the affected tickets.`
+            : ['change', 'feedback'].includes(d.kind)
+              ? ' Map it to the requirements it amends or extends (mc_map_change); it returns the impact to post.'
+              : '';
+          push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}.${map}`, { ticket: d.id });
+        }
+        break;
+      case 'ticket.map':
+        // the lead sees its own mapping in the tool result; tell it when someone else mapped one
+        if (ev.by !== lead) push('change', `${nameOf(ev.by)} mapped ${d.id}: ${core.index.impact(d.id).line} Post the impact check and handle the affected tickets.`, { ticket: d.id });
         break;
       case 'ticket.status':
         if (!t) break;

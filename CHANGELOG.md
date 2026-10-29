@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Project index.** HQ maps every requirement, story, epic, release, ticket, change request, decision, question, fact, note, design doc, meeting and message, and the typed links between them (implements, part of, depends on, amends, extends, discussed in…), from its event log and the anchored planning docs. No model reads files to build it.
+- New agent tools: `mc_ref` (everything linked to an ID), `mc_section` (just an ID's definition), `mc_note` (what a member learned about a story or requirement), and for the lead or PM `mc_map_change`, `mc_requirement` and `mc_trace`. `mc_decide`, `mc_ask`, `mc_escalate` and `mc_minutes` take `refs`; `mc_decide` takes `supersedes`; `mc_create_ticket` and `mc_update_ticket` take `kind` (`task` or `chore`).
+- `mc_claim` returns `context`: the ticket's requirements as they stand now (amended wording first) with their decisions, open questions, facts, notes and other tickets. `facts` leaves out facts known to concern only other requirements (`facts_elsewhere` says how many).
+- **Traceability**, `traceability: strict | warn | off` in `team.yaml`. Strict (new projects): tickets need refs that trace to a requirement or are chores; decisions, questions and escalations name their ticket or requirements; agents' messages outside a ticket thread name a ticket or requirement; unknown IDs are refused. Projects without the setting get `warn`.
+- **Change requests map to the requirements they amend or extend**, when raised (Inbox fields, `/api/change`) or with `mc_map_change`. An unmapped change or feedback ticket can't be started in strict mode. Mapping returns and posts the impact. Amended wording and new requirements go to `.madcompany/log/requirements.md`.
+- Diagnostics for the lead's briefing, `mc_trace`, HQ → Trace and `npx madcompany trace [--strict]`: unmapped changes, work done (or in progress) before a change amended its requirement, unknown IDs, reopened dependencies, open questions on reviewed tickets, untraced work.
+- HQ: a **Trace** page (coverage, what to fix, every requirement with its tickets and changes, add a requirement), a page per ID (`#/ref/<ID>`), "Traces to" and change mapping on ticket pages, Amends/Extends on the change request form, and a traceability line on the dashboard.
+- CLI: `ref <ID>` and `trace [--strict]`.
+- Agent protocol: look IDs up with `mc_ref`/`mc_section`, raise contradictions with the lead, leave `mc_note`s. Reviewing is now step 10. `/mc-plan-release` defines requirements when the planning docs have none; `/mc-scan` records an existing app's capabilities as requirements; `/mc-ui-sprint` maps feedback; `/mc-minutes` passes `refs`.
+- File formats: new events `ticket.map`, `requirement.add`, `requirement.amend`, `note.add`; `ticket.create` may carry `amends`/`extends`; `question.ask`, `decision.log` and `minutes.add` may carry `refs` (and `decision.log` `supersedes`). New readable files `.madcompany/log/requirements.md` and `.madcompany/log/notes.md`.
+
 ## 0.1.0 (2026-09-25)
 
 First version.

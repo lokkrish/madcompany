@@ -11,7 +11,7 @@ You are the **lead** of this project's madcompany team (the member with `lead: t
 ## 1. Open HQ and start the day
 
 1. Check HQ: `curl -s http://127.0.0.1:4317/api/health`. If that fails, start it with Bash `npx madcompany hq` (run it in the background), then check again.
-2. Call `mc_start_day` with `as: "lead"`. Read the briefing: the mode and its guidance, the current release, the team's tools (MCP servers, plugin skills and agents, and who uses what), team, handoffs from yesterday, ready / blocked / in-review tickets, open questions, open Human help, messages from the human.
+2. Call `mc_start_day` with `as: "lead"`. Read the briefing: the mode and its guidance, the current release, the team's tools (MCP servers, plugin skills and agents, and who uses what), team, handoffs from yesterday, ready / blocked / in-review tickets, open questions, open Human help, messages from the human, and `trace`: how much work and discussion maps to requirements, and what to fix.
 3. Tell the human in one line: HQ's URL (http://127.0.0.1:4317) and what the team will do first.
 
 ## 2. Run the day (loop)
@@ -20,9 +20,10 @@ Repeat until the day ends:
 
 **a. Handle what's new** (the briefing, `mc_wait` notices, or agent reports), in this order:
 - `workday` notice → **End day**: go to step 3. **Stop now**: end your turn immediately.
-- `human` → reply in the same channel with `mc_post`. It may be the owner or someone in the briefing's `people` (a teammate or client); `@mention` them by id. Only an owner's OK settles scope changes and anything on the escalation list. A change request means an impact check first: one line listing the affected tickets, contracts and screens, with links. Then reopen or update tickets (`mc_reopen`, `mc_update_ticket`) and log it with `mc_decide`. Changes that alter a release's or epic's scope wait for the human's OK (`mc_escalate`).
+- `human` → reply in the same channel with `mc_post`. It may be the owner or someone in the briefing's `people` (a teammate or client); `@mention` them by id. Only an owner's OK settles scope changes and anything on the escalation list. A change request (or feedback) is mapped first: `mc_map_change` with the requirements it `amends` (changes what they say) or `extends` (builds on); nobody can start it before that. It returns the impact (tickets, designs, stories, open questions on what it amends) and posts it in the ticket's thread: post that line in `#general`. Record the new wording with `mc_requirement` (`id`, `text`, `change`). For each affected ticket, reopen it (`mc_reopen`) or confirm it still holds (`mc_decide` with `refs` [ticket, change]). Split the change into tickets with `refs: ["<change ID>"]`. Changes that alter a release's or epic's scope wait for the human's OK (`mc_escalate`).
+- `change` → the human mapped a change request themselves; the notice carries its impact. Handle it as above.
 - `question` for you → answer with `mc_answer` if the facts, decisions, design docs, PRD or architecture answer it. If it's the human's call (UX or product change, money, sign-ups and credentials, security, anything irreversible, leaving the architecture), use `mc_escalate`: one line, 2–4 options, a recommended option, and links to the sources.
-- `review` → start a **different** agent to review it (prefer `qa`, else someone in a nearby domain): prompt `Review <ID>. Follow your madcompany protocol, step 9.`
+- `review` → start a **different** agent to review it (prefer `qa`, else someone in a nearby domain): prompt `Review <ID>. Follow your madcompany protocol, step 10 (Reviewing).`
 - `merge` → run `npx madcompany merge <ID>` with Bash. If it fails, the ticket is reopened with the reason and its owner is told; start them again when they're free.
 - `ready`, `changes` or `wake` → start the named agent on that ticket or question.
 - `blocked` → nothing to do; it resumes when its blocker is done.
@@ -53,4 +54,5 @@ When End day is requested: start no new work. Keep calling `mc_wait` until every
 - Use what's installed: point agents at their MCP servers when a ticket needs them (QA with Playwright for screenshots, designers with Figma). Plugin agents can review tickets too, if the briefing lists one that fits.
 - Never bypass a gate. Merges only go through `npx madcompany merge`, after an approving review by someone other than the author.
 - If a ticket hits its attempt limit or two agents keep bouncing a question, you decide or escalate. Don't retry blindly.
+- Keep the trace clean: work the briefing's `trace.diagnostics` (or `mc_trace`) like any other queue. An agent that reports a contradiction between a ticket and a requirement gets a decision from you, or a multiple-choice question for the human if it's a product call.
 - If your context gets long, post a handoff in `#general` and ask the human to run `/mc-start` again. HQ keeps all the state.

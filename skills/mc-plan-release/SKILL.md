@@ -15,14 +15,15 @@ You act as the madcompany **lead** (`as: "lead"`). HQ must be running (`curl -s 
    - **brownfield**: R1 is onboarding (working checks, codebase map, one small real change); then small change sets.
    Ask the human to confirm or adjust. This is the only planning question.
 3. **Create it** with `mc_release` (title, goal, version). New tickets join it automatically while it's the current release.
+   **Requirements first.** Every ticket traces to a requirement. If the planning docs have no requirement IDs yet (a brief, MVP scope or UX spec rarely do), define them now with `mc_requirement`: one per user-visible capability in the release, with `source` linking where it came from. Change requests and feedback in the release must be mapped (`mc_map_change`) before they're split.
 4. **Split into tickets** with `mc_create_ticket`, each within one team member's domain (`.madcompany/team.yaml`):
    - screens first (`ui: true`) on mock data, when the release has anything visible
    - design-pack tickets (API contract, schema) before the code that implements them
    - backend and integration tickets with `deps` for real ordering
    - carry over unfinished tickets and change requests with `mc_update_ticket` (`release: "R<n>"`)
-   Keep each ticket under a day for one agent.
+   Give every ticket `refs`: the requirement IDs it implements, or the change request it is part of. Work that implements no requirement (tooling, checks, onboarding) is `kind: "chore"`. Keep each ticket under a day for one agent.
 5. **Human help.** For every third-party service, account, key, paid plan, domain, store listing, deploy target or access the release will need, call `mc_human_help` once with exact steps, links, the `.env` key names and `neededBy: "R<n>"`. File them now, so the human can do them while the team builds on mocks.
 6. **Next.** If the release has screens the human hasn't signed off yet, run `/mc-ui-sprint` with them. Otherwise post the plan in one line in `#general` and run `/mc-start`.
-7. **Record it.** If the human took part, run `/mc-minutes` (kind `planning`, title `Release plan R<n>`).
+7. **Record it.** If the human took part, run `/mc-minutes` (kind `planning`, title `Release plan R<n>`, `refs`: the requirements planned).
 
 When every ticket in the release is done and merged, the lead calls `mc_ready_for_review` (see `/mc-start`). The human approves it in HQ → Releases, then the lead runs `npx madcompany ship R<n>`.

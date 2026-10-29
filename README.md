@@ -17,6 +17,7 @@ BMad plans well, but its build phase goes one story at a time (create story → 
 - **You're asked only what's yours.** One-line, multiple-choice questions with a recommendation. Answers are saved, so nobody asks twice.
 - **Everything only you can do is in one list:** [Human help](#human-help). Accounts, API keys, payments, pushes and deploys, each with exact steps.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7, HELP-3, R2: click it and HQ opens the exact line.
+- **Mapped like code.** A project index links every requirement, story, ticket, change request, decision, question, note and message, the way a language server maps a codebase. "What touches FR12?" is one lookup, not an agent reading every file. Every ticket, decision and agent message traces back to a requirement, and a change request names what it amends or extends before anyone starts it: [Traceability](#traceability).
 - **Staffed like a company.** 14 roles in 7 departments, templates for 5, 10 or 20 people, a model per agent, and teammates or clients can sign in to HQ.
 - **Uses your MCP servers and plugins.** Whatever you've added to Claude Code (Playwright, Figma, GitHub, Supabase, plugin skills…) the team uses too, each role with its own tools, and anything that would push, deploy or pay goes to you.
 
@@ -137,6 +138,18 @@ Some things only a person can do: sign up for a service, create an API key, pay,
 
 ![HQ Human help](docs/images/hq-human-help.png)
 
+## Traceability
+
+The agents don't read the whole PRD to find out what a story depends on. HQ keeps a **project index**, built from its event log and your anchored planning docs with no model involved, the way a language server maps code:
+
+- **Look up instead of reading.** `mc_ref FR12` returns everything linked to it: where it's defined, the stories that cover it, the tickets that implement it, the change requests that amend or extend it, and the decisions, questions, facts, notes and discussion on those tickets. `mc_section Story 2.3` returns just that story's section. When an agent starts a ticket, it gets its requirements as they stand now (amended wording first) with what's known about them.
+- **Everything traces to a requirement.** With `traceability: strict` (the default for new projects), a ticket needs refs to the requirements it implements (or is a chore), decisions and questions name their ticket or requirements, and an agent's message outside a ticket thread names what it's about. HQ refuses the rest and says how to fix it.
+- **Change requests map to what they change.** Each one names the requirements it **amends** or **extends**, when you raise it or when the lead maps it; nobody starts it before that. Mapping returns the impact: done and in-progress tickets, designs, stories and open questions on what it amends. The new wording goes to `.madcompany/log/requirements.md`; the PRD stays as written.
+- **What to fix, in one place.** HQ → Trace, the lead's morning briefing and `npx madcompany trace` list unmapped changes, work done before a change amended its requirement, unknown IDs, reopened dependencies and untraced work. `trace --strict` fails CI on any of them.
+- **Notes stay with the story.** What an agent learns about a story (`mc_note`) shows up for whoever works on it next.
+
+![HQ Trace: requirements with their tickets and changes, and what to fix](docs/images/hq-trace.png)
+
 ## MCP servers and plugins
 
 The agents are Claude Code subagents, so the MCP servers and plugins you've added to Claude Code are theirs too. madcompany makes that safe and deliberate:
@@ -156,7 +169,7 @@ The agents are Claude Code subagents, so the MCP servers and plugins you've adde
 | `/mc-setup` | After installing as a BMad module: asks your mode and sets up the project |
 | `/mc-staff` | Roles, domains and models for your app (or a 5/10/20-person template); one subagent per member |
 | `/mc-scan` | Brownfield: map the codebase, set the real checks, file Human help for missing keys |
-| `/mc-plan-release` | Plan the next release with you: one goal, single-domain tickets, Human help filed early |
+| `/mc-plan-release` | Plan the next release with you: one goal, requirements, single-domain tickets that trace to them, Human help filed early |
 | `/mc-plan-epic` | Spec-driven: import BMad stories, anchor IDs, split into tickets |
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract |
 | `/mc-start` | Start the workday; your session becomes the lead |
@@ -174,9 +187,11 @@ The agents are Claude Code subagents, so the MCP servers and plugins you've adde
 | `merge <ticket>` | Merge queue: merge into the release or epic branch, run checks, then mark done or revert and reopen |
 | `ship <R1\|E1>` | Merge an approved release or epic into main and tag it; push and deploy go to Human help |
 | `refs check` / `refs fix` | Find or fix bare references like "FR12" that should be links |
+| `ref <ID>` | Everything linked to an ID: tickets, changes, decisions, questions, notes, discussion |
+| `trace [--strict]` | How much work and discussion maps to requirements, and what to fix (`--strict` for CI) |
 | `status`, `env <agent>`, `snapshot` | Summary, per-agent ports and database, commit HQ's logs |
 
-HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Tools, Preview**, plus search. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
+HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Trace, Team, Tools, Preview**, plus search and a page per ID. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
 
 ## Safety
 
@@ -189,14 +204,14 @@ Agents work unattended, so the rules are enforced in code, not just in prompts:
 
 ## Status
 
-v0. Covered by 59 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
+v0. Covered by 67 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
 
 | Run | What happened | Time | Usage |
 |---|---|---|---|
 | Plain ticket | dev built it → QA reviewed and ran the tests → merged → End day handled | 2–2.5 min | ~$0.5 |
 | Park and resume | dev hit an unspecified product decision → asked → parked with a checkpoint → lead escalated it to you as multiple-choice → you answered (saved as a fact) → dev resumed → reviewed → merged | ~2.5 min | ~$0.7 |
 
-The MCP policy was checked with a real headless Claude Code run: a read-only tool ran, a delete was blocked with the Human help message, and without the hook the read-only tool was denied. Releases, modes and Human help are covered by automated tests but haven't had a full real run yet. Not yet built: a deploy step beyond the Human help checklist, importing in-progress BMad sprints, screenshot comparison, a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0) and the [roadmap](docs/SPEC.md#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
+The MCP policy was checked with a real headless Claude Code run: a read-only tool ran, a delete was blocked with the Human help message, and without the hook the read-only tool was denied. Releases, modes, Human help and traceability (the project index, change mapping) are covered by automated tests but haven't had a full real run yet. Not yet built: a deploy step beyond the Human help checklist, importing in-progress BMad sprints, screenshot comparison, a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0) and the [roadmap](docs/SPEC.md#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
 ## License
 
