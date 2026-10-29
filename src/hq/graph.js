@@ -827,6 +827,30 @@ export function createIndex({ store, config, paths }) {
     return { context: out, requirements: reqs.map((k) => g.nodes.get(k).id) };
   }
 
+  /**
+   * The one epic these requirements belong to (HQ's id, e.g. "E1"), or null
+   * when they span several or none: an epic itself, a story's epic, the epics
+   * of the stories that cover a requirement and of the tickets implementing it.
+   */
+  function epicOf(ids) {
+    const g = build();
+    const found = new Set();
+    const asEpic = (k) => {
+      const m = /^epic-(\d+)$/.exec(k);
+      if (m) found.add(`E${m[1]}`);
+    };
+    for (const raw of ids) {
+      const k = keyOf(raw);
+      const n = g.nodes.get(k);
+      if (!n) continue;
+      if (n.kind === 'epic') asEpic(k);
+      const stories = n.kind === 'story' ? [k] : inOf(g, k).filter((e) => e.type === 'refs' && g.nodes.get(e.from).kind === 'story').map((e) => e.from);
+      for (const st of stories) for (const e of outOf(g, st)) if (e.type === 'part_of') asEpic(e.to);
+      for (const e of inOf(g, k)) if (e.type === 'implements' && g.nodes.get(e.from).kind === 'ticket') asEpic(keyOf(store.state.tickets[g.nodes.get(e.from).id]?.epic ?? ''));
+    }
+    return found.size === 1 ? [...found][0] : null;
+  }
+
   /** The next free ID for a new requirement of this kind (FR, NFR, UXR). */
   function nextRequirementId(prefix = 'FR') {
     const g = build();
@@ -860,6 +884,7 @@ export function createIndex({ store, config, paths }) {
     coverage,
     requirements,
     contextFor,
+    epicOf,
     nextRequirementId,
   };
 }

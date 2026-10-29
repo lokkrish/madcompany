@@ -1137,7 +1137,9 @@ export function createCore({ store, config, paths }) {
     const amends = idsOf(f.amends);
     const ext = idsOf(f.extends);
     checkMapping(amends, ext, { allowEmpty: true });
-    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', amends, extends: ext, ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : {}) });
+    // in epic mode a change ships with the epic it changes, not on a branch of its own
+    const epic = !u && !byRelease() ? index.epicOf([...amends, ...ext]) : null;
+    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', amends, extends: ext, ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : epic ? { epic } : {}) });
     const impact = amends.length || ext.length ? index.impact(res.ticket.id).line : null;
     if (impact) post(by, { channel: `ticket:${res.ticket.id}`, text: impact }, { system: true });
     post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — ${impact ?? 'please map it to the requirements it amends or extends (mc_map_change) and post an impact check.'}` }, { system: true });
@@ -1166,12 +1168,19 @@ export function createCore({ store, config, paths }) {
     const ext = idsOf(f.extends);
     checkMapping(amends, ext);
     store.append('ticket.map', as, { id: t.id, amends, extends: ext });
+    // in epic mode a change ships with the epic it changes, not on a branch of its own
+    const epic = !byRelease() && !t.epic && !t.release && t.status === 'todo' ? index.epicOf([...amends, ...ext]) : null;
+    if (epic) {
+      if (!s().epics[epic]) store.append('epic.upsert', as, { id: epic, title: epic, phase: 'build' });
+      store.append('ticket.update', as, { id: t.id, fields: { epic } });
+    }
     const imp = index.impact(t.id);
     post(as === 'cli' ? lead : as, { channel: `ticket:${t.id}`, text: imp.line }, { system: true });
     const next = imp.affected.tickets.length
       ? `Post the impact in #general. For each affected ticket: reopen it (mc_reopen) or confirm it still holds (mc_decide with refs [ticket, "${t.id}"]). Record the new wording with mc_requirement (id, text, change: "${t.id}"). Changes to a release's or epic's scope wait for the human's OK.`
       : `Post the impact in #general, record any new wording with mc_requirement (change: "${t.id}"), then split it into tickets with refs ["${t.id}"].`;
-    return { ok: true, ...imp, next };
+    const unplaced = !byRelease() && !t.epic && !t.release ? ` It isn't in an epic, so it would merge on its own branch: set one with mc_update_ticket (epic).` : '';
+    return { ok: true, ...imp, ...(epic ? { epic } : {}), next: next + unplaced };
   }
   /**
    * Add a requirement (from the brief, MVP scope or a change request), or

@@ -149,11 +149,13 @@ test('change requests: mapped to what they amend or extend before work starts, w
   assert.throws(() => core.mapChange('lead', 'APP-1', { amends: ['FR2'] }), /is a task ticket/);
 
   const res = core.mapChange('lead', chg, { amends: ['FR2'] });
+  assert.equal(core.ticket(chg).epic, 'E1', 'it merges with Epic 1, where FR2 is built (Story 1.1)');
+  assert.equal(res.epic, 'E1');
   assert.deepEqual(res.affected.tickets.map((t) => t.id), ['APP-1', 'APP-2'], 'tickets on FR2, and on Story 1.1 that covers it');
   assert.deepEqual(res.affected.stories.map((x) => x.id), ['Story 1.1']);
   assert.match(res.line, /^Impact of APP-4: amends FR2; tickets APP-1 \(done\), APP-2 \(in_progress\); stories Story 1\.1\.$/);
   assert.ok(core.store.state.messages.some((m) => m.channel === `ticket:${chg}` && m.text === res.line), 'the impact is posted in the change thread');
-  assert.equal(core.ticketInfo('lead', chg).activity.at(-1).text, 'mapped: amends FR2');
+  assert.deepEqual(core.ticketInfo('lead', chg).activity.slice(-2).map((a) => a.text), ['mapped: amends FR2', 'updated epic']);
 
   // work done or in progress on what the change amends is flagged until someone decides
   let diags = core.traceSummary().diagnostics;
@@ -176,7 +178,7 @@ test('change requests: mapped to what they amend or extend before work starts, w
 
   // work split from the change traces through it
   const part = core.createTicket('lead', { title: 'Unassign button', refs: [chg] }).ticket.id;
-  assert.deepEqual(core.index.trace(part), ['FR2']);
+  assert.deepEqual(core.index.trace(part), ['FR2', 'Epic 1']);
   assert.ok(!core.index.impact(chg).affected.tickets.some((t) => t.id === part), 'its own tickets are not "affected"');
 });
 
@@ -188,6 +190,7 @@ test('a change can be mapped when raised, and new requirements get the next numb
   assert.match(res.impact, /^Impact of APP-2: extends Epic 1/);
   assert.match(notices.take().find((n) => n.ticket === 'APP-2').text, /Impact of APP-2/);
   assert.ok(core.index.mapping(core.ticket('APP-2')).mapped);
+  assert.equal(core.ticket('APP-2').epic, 'E1', 'a change mapped when raised joins its epic too');
   assert.throws(() => core.change({ text: 'x', amends: ['APP-1'] }, 'you'), /isn't a requirement/);
   assert.equal(Object.keys(core.store.state.tickets).length, 2, 'a bad mapping creates nothing');
 
