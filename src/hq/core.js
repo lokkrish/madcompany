@@ -5,6 +5,7 @@ import { McError, member } from '../config.js';
 import { ensureDir, safeJoin } from '../paths.js';
 import { modeInfo } from '../modes.js';
 import { discoverTools, serversFor, policyLine } from '../tools.js';
+import { createIndex } from './graph.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'in_review', 'done'];
 const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
@@ -28,6 +29,7 @@ export const HELP_KINDS = {
 export function createCore({ store, config, paths }) {
   const s = () => store.state;
   const lead = config.leadId;
+  const index = createIndex({ store, config, paths });
 
   // ---------- helpers ----------
   const isMember = (id) => Boolean(member(config, id));
@@ -48,6 +50,32 @@ export function createCore({ store, config, paths }) {
     if (!t) throw new McError(`No ticket ${id}.`);
     return t;
   }
+  // who may define requirements and map change requests to them
+  const canPlan = (as) => as === lead || as === 'cli' || isHuman(as) || member(config, as)?.type === 'product-manager';
+
+  // ---------- traceability: discussion and work map back to requirements ----------
+  const strictness = () => config.traceability ?? 'warn';
+  /**
+   * Checks what a new ticket, decision, question or message traces to. Throws
+   * in strict mode, returns the warning in warn mode, null when it's fine.
+   */
+  function traced(what, found, hint, { needRequirement = true } = {}) {
+    if (strictness() === 'off') return null;
+    const problems = [];
+    if (found.unknown.length) problems.push(`${found.unknown.join(', ')} ${found.unknown.length > 1 ? "aren't" : "isn't"} defined anywhere (mc_lookup checks an ID).`);
+    if (needRequirement && !found.requirements.length) {
+      problems.push(
+        found.anyRequirements
+          ? `${what} isn't linked to a requirement. ${hint}`
+          : `${what} can't be linked to a requirement because none are defined yet. Import the PRD (npx madcompany import) or define them with mc_requirement.`,
+      );
+    }
+    if (!problems.length) return null;
+    if (strictness() === 'strict') throw new McError(problems.join(' '));
+    return problems.join(' ');
+  }
+  const withWarning = (res, warning) => (warning ? { ...res, warning } : res);
+  const idsOf = (list) => [...new Set((list ?? []).map((x) => index.node(x)?.id ?? String(x).trim()).filter(Boolean))];
   const isDone = (id) => {
     const up = String(id).toUpperCase();
     if (s().tickets[up]) return s().tickets[up].status === 'done';
@@ -253,6 +281,17 @@ export function createCore({ store, config, paths }) {
       tools: toolsSummary(),
       human_messages: s().messages.filter((m) => isHuman(m.by)).slice(-5),
       answered_for_you: Object.values(s().questions).filter((q) => q.status === 'answered' && isHuman(q.answeredBy)).slice(-5),
+      trace: traceSummary(15),
+    };
+  }
+  /** Traceability for the lead: how much maps to requirements, and what to fix. */
+  function traceSummary(limit = 30) {
+    const diags = index.diagnostics();
+    return {
+      mode: strictness(),
+      coverage: index.coverage(),
+      diagnostics: diags.slice(0, limit).map((d) => d.text),
+      ...(diags.length > limit ? { more: `${diags.length - limit} more: mc_trace` } : {}),
     };
   }
   function requestEndDay(as) {
@@ -308,7 +347,14 @@ export function createCore({ store, config, paths }) {
       if (existing) return { ticket: briefTicket(existing), existing: true };
     }
     if (f.assignee && !isMember(f.assignee)) throw new McError(`Unknown assignee "${f.assignee}".`);
+    const kind = f.kind ?? 'task';
+    if (!['task', 'chore', 'feedback', 'change'].includes(kind)) throw new McError('kind must be "task" or "chore" (a chore implements no requirement: tooling, checks, setup).');
     const release = f.release ? unit(f.release, 'release').id : !f.epic && byRelease() ? currentRelease()?.id ?? null : null;
+    // a task implements requirements; a change request is mapped to them separately (mc_map_change)
+    const warning =
+      kind === 'task'
+        ? traced('This ticket', index.check({ refs: f.refs, context: [f.epic] }), 'Pass refs: the requirement, story or epic IDs it implements, or the change request it is part of. Use kind "chore" for work that implements no requirement.')
+        : null;
     const id = nextId('ticket', config.project.key);
     const deps = checkDeps(f.deps);
     if (f.epic && !s().epics[f.epic]) store.append('epic.upsert', as, { id: f.epic, title: f.epicTitle ?? f.epic, phase: 'build' });
@@ -322,11 +368,12 @@ export function createCore({ store, config, paths }) {
       deps,
       ui: Boolean(f.ui),
       refs: f.refs ?? [],
-      kind: f.kind ?? 'task',
+      kind,
       source: f.source ?? null,
       assignee: f.assignee ?? null,
+      ...(kind === 'change' && (f.amends?.length || f.extends?.length) ? { amends: f.amends ?? [], extends: f.extends ?? [] } : {}),
     });
-    return { ticket: briefTicket(s().tickets[id]) };
+    return withWarning({ ticket: briefTicket(s().tickets[id]) }, warning);
   }
 
   function updateTicket(as, id, fields = {}) {
@@ -336,9 +383,19 @@ export function createCore({ store, config, paths }) {
     for (const k of ['title', 'body', 'domain', 'ui', 'epic', 'refs']) if (k in fields) clean[k] = fields[k];
     if ('release' in fields) clean.release = fields.release ? unit(fields.release, 'release').id : null;
     if ('deps' in fields) clean.deps = checkDeps(fields.deps, t.id);
+    if ('kind' in fields && fields.kind !== t.kind) {
+      if (!['task', 'chore'].includes(fields.kind) || !['task', 'chore'].includes(t.kind)) throw new McError('Only task and chore tickets switch kind (task ↔ chore). Change requests and feedback are mapped with mc_map_change.');
+      clean.kind = fields.kind;
+    }
     if (!Object.keys(clean).length) throw new McError('Nothing to update.');
+    let warning = null;
+    if (['refs', 'epic', 'kind'].some((k) => k in clean)) {
+      const refs = clean.refs ?? t.refs;
+      const found = index.check({ refs, context: [clean.epic ?? t.epic] });
+      warning = traced(t.id, found, 'Pass refs: the requirement, story or epic IDs it implements, or make it a chore.', { needRequirement: (clean.kind ?? t.kind) === 'task' });
+    }
     store.append('ticket.update', as, { id: t.id, fields: clean });
-    return { ticket: briefTicket(t) };
+    return withWarning({ ticket: briefTicket(t) }, warning);
   }
 
   function assign(as, id, agent) {
@@ -376,6 +433,16 @@ export function createCore({ store, config, paths }) {
     if (t.attempts >= config.limits.attempts) {
       throw new McError(`${t.id} has hit its limit of ${config.limits.attempts} attempts. Don't retry: ask the lead with mc_ask.`);
     }
+    // nobody builds a change before we know which requirements it changes
+    let warning = null;
+    if (strictness() !== 'off') {
+      if (['change', 'feedback'].includes(t.kind) && !index.mapping(t).mapped) {
+        warning = `${t.id} is a ${t.kind === 'change' ? 'change request' : 'feedback ticket'} that isn't mapped to the requirements it amends or extends yet. Ask the lead to map it (mc_map_change) first.`;
+      } else if (t.kind === 'task' && !index.trace(t.id).length) {
+        warning = `${t.id} isn't linked to any requirement. Ask the lead to add refs (mc_update_ticket) or make it a chore.`;
+      }
+      if (warning && strictness() === 'strict') throw new McError(warning);
+    }
     // read the blockers before claiming: a claim clears them
     const blockers = [...t.blockedBy];
     store.append('ticket.claim', as, { id: t.id });
@@ -385,19 +452,31 @@ export function createCore({ store, config, paths }) {
       return { id: d, title: dt.title, lastWorklog: dt.worklog.at(-1)?.text ?? null };
     });
     const blockerNotes = blockers.map((b) => s().questions[b] ?? s().tickets[b] ?? s().help[b]).filter(Boolean);
-    return {
-      ticket: { ...briefTicket(t), body: t.body, refs: t.refs, attempts: t.attempts },
-      resume_from: t.checkpoint,
-      dependencies: depNotes,
-      resolved_blockers: blockerNotes.map((b) =>
-        b.question ? { id: b.id, question: b.question, answer: b.answer } : b.steps ? { id: b.id, title: b.title, status: b.status, note: b.note, env: b.env } : { id: b.id, title: b.title },
-      ),
-      git: gitPlan(t),
-      env: env(as),
-      facts: s().facts.map((f) => `${f.id}: ${f.text}`),
-      designs: Object.values(s().designs).map((d) => ({ path: d.path, owner: d.owner, status: d.status })),
-      unread: inboxFor(as).length,
-    };
+    // the ticket's requirements as they stand now, and what's known about them
+    const { context, requirements } = index.contextFor(t.id);
+    // facts known to be about other requirements stay out; facts about none of them might matter anywhere
+    const facts = s().facts.filter((f) => {
+      const tr = index.trace(f.id);
+      return !tr.length || tr.some((r) => requirements.includes(r));
+    });
+    return withWarning(
+      {
+        ticket: { ...briefTicket(t), body: t.body, refs: t.refs, attempts: t.attempts, ...(t.kind === 'change' ? { amends: t.amends, extends: t.extends } : {}) },
+        resume_from: t.checkpoint,
+        context,
+        dependencies: depNotes,
+        resolved_blockers: blockerNotes.map((b) =>
+          b.question ? { id: b.id, question: b.question, answer: b.answer } : b.steps ? { id: b.id, title: b.title, status: b.status, note: b.note, env: b.env } : { id: b.id, title: b.title },
+        ),
+        git: gitPlan(t),
+        env: env(as),
+        facts: facts.map((f) => `${f.id}: ${f.text}`),
+        ...(facts.length < s().facts.length ? { facts_elsewhere: `${s().facts.length - facts.length} more about other requirements: mc_facts` } : {}),
+        designs: Object.values(s().designs).map((d) => ({ path: d.path, owner: d.owner, status: d.status })),
+        unread: inboxFor(as).length,
+      },
+      warning,
+    );
   }
 
   /** Everything about one ticket, including its git branch, so a reviewer can check it out. */
@@ -565,13 +644,19 @@ export function createCore({ store, config, paths }) {
   }
 
   // ---------- chat & questions ----------
-  function post(as, f = {}) {
+  /** `system` posts are HQ's own (question DMs, contract notices); they carry their IDs already. */
+  function post(as, f = {}, { system = false } = {}) {
     actor(as, { allowHuman: true });
     if (!f.text?.trim()) throw new McError('Empty message.');
     const channel = channelFor(as, f.channel);
+    // agents talk about something: a ticket, story or requirement. The lead and people talk freely.
+    const warning =
+      !system && isMember(as) && as !== lead && !channel.startsWith('ticket:')
+        ? traced('This message', index.check({ texts: [f.text], channel }), 'Mention the ticket or requirement it is about (e.g. APP-12 or FR3), or post in its thread (channel ticket:<ID>).')
+        : null;
     const id = nextId('msg', 'M');
     store.append('msg.post', as, { id, channel, text: String(f.text), mentions: parseMentions(f.text) });
-    return { ok: true, id, channel };
+    return withWarning({ ok: true, id, channel }, warning);
   }
 
   function read(as) {
@@ -587,9 +672,11 @@ export function createCore({ store, config, paths }) {
     if (!isMember(to)) throw new McError(`Unknown recipient "${f.to}". Ask a team member or "lead"; only the lead escalates to the human.`);
     if (to === as) throw new McError("You can't ask yourself.");
     if (!f.question) throw new McError('Empty question.');
+    const tid = f.ticket ? ticket(f.ticket).id : null;
+    const warning = traced('This question', index.check({ refs: f.refs, texts: [f.question, ...(f.links ?? [])], context: [tid] }), 'Pass the ticket it is about, or refs: the requirement IDs it concerns.');
     const id = nextId('q', 'Q');
-    store.append('question.ask', as, { id, to, question: String(f.question), ticket: f.ticket ? ticket(f.ticket).id : null, options: f.options ?? [], links: f.links ?? [] });
-    post(as, { channel: `dm:${to}`, text: `${id} @${to}: ${f.question}` });
+    store.append('question.ask', as, { id, to, question: String(f.question), ticket: tid, options: f.options ?? [], links: f.links ?? [], refs: idsOf(f.refs) });
+    post(as, { channel: `dm:${to}`, text: `${id} @${to}: ${f.question}` }, { system: true });
     // REL-3: a question bouncing between the same two agents goes to the lead.
     const pair = [as, to].sort().join('+');
     const bounces = Object.values(s().questions).filter(
@@ -598,7 +685,7 @@ export function createCore({ store, config, paths }) {
     if (bounces >= 3 && to !== lead) {
       store.append('question.escalate', 'cli', { id, to: lead, reason: `ping-pong between ${as} and ${to}` });
     }
-    return { ok: true, id, note: 'Don\'t wait for the answer. If you can\'t continue, park the ticket with mc_block (blockedBy: ["' + id + '"]).' };
+    return withWarning({ ok: true, id, note: 'Don\'t wait for the answer. If you can\'t continue, park the ticket with mc_block (blockedBy: ["' + id + '"]).' }, warning);
   }
 
   function answer(as, qid, text) {
@@ -614,7 +701,7 @@ export function createCore({ store, config, paths }) {
       store.append('fact.add', as, { id: fid, text: `${q.question} → ${text}`, source: q.id });
       writeFacts();
     }
-    post(as, { channel: `dm:${isHuman(q.from) ? lead : q.from}`, text: `${q.id} answered: ${text}` });
+    post(as, { channel: `dm:${isHuman(q.from) ? lead : q.from}`, text: `${q.id} answered: ${text}` }, { system: true });
     return { ok: true };
   }
 
@@ -631,17 +718,27 @@ export function createCore({ store, config, paths }) {
       return { ok: true, id: q.id };
     }
     if (!f.question) throw new McError('Empty question.');
+    const tid = f.ticket ? ticket(f.ticket).id : null;
+    const warning = traced('This question', index.check({ refs: f.refs, texts: [f.question, ...(f.links ?? [])], context: [tid] }), 'Pass the ticket, or refs: the requirement IDs it is about, so the answer lands where it belongs.');
     const id = nextId('q', 'Q');
-    store.append('question.ask', as, { id, to: HUMAN, question: String(f.question), options, recommended, links: f.links ?? [], ticket: f.ticket ? ticket(f.ticket).id : null });
-    return { ok: true, id };
+    store.append('question.ask', as, { id, to: HUMAN, question: String(f.question), options, recommended, links: f.links ?? [], ticket: tid, refs: idsOf(f.refs) });
+    return withWarning({ ok: true, id }, warning);
   }
 
   function decide(as, f = {}) {
     actor(as);
     if (!f.title || !f.decision || !f.why) throw new McError('A decision needs a title, the decision and why.');
+    const tid = f.ticket ? ticket(f.ticket).id : null;
+    const supersedes = f.supersedes ? String(f.supersedes).toUpperCase() : null;
+    if (supersedes && !s().decisions.some((d) => d.id === supersedes)) throw new McError(`No decision ${f.supersedes}.`);
+    const warning = traced(
+      'This decision',
+      index.check({ refs: f.refs, texts: [f.title, f.decision, f.why, f.alternatives, ...(f.links ?? [])], context: [tid] }),
+      'Pass the ticket it was made on, or refs: the requirement IDs it affects.',
+    );
     const id = nextId('dec', 'DEC');
-    store.append('decision.log', as, { id, title: f.title, decision: f.decision, why: f.why, alternatives: f.alternatives ?? '', links: f.links ?? [], ticket: f.ticket ?? null });
-    return { ok: true, id };
+    store.append('decision.log', as, { id, title: f.title, decision: f.decision, why: f.why, alternatives: f.alternatives ?? '', links: f.links ?? [], ticket: tid, refs: idsOf(f.refs), supersedes });
+    return withWarning({ ok: true, id }, warning);
   }
 
   function facts() {
@@ -674,9 +771,12 @@ export function createCore({ store, config, paths }) {
     const wasAgreed = doc && doc.status !== 'draft';
     store.append('design.write', as, { path: rel, consumers });
     if (consumers.length) {
-      post(as, { channel: 'contracts', text: `${wasAgreed ? 'Changed' : 'Draft'}: ${rel} (v${s().designs[rel].version}). Please review and approve: ${consumers.map((c) => '@' + c).join(' ')}` });
+      post(as, { channel: 'contracts', text: `${wasAgreed ? 'Changed' : 'Draft'}: ${rel} (v${s().designs[rel].version}). Please review and approve: ${consumers.map((c) => '@' + c).join(' ')}` }, { system: true });
     }
-    return { ok: true, design: s().designs[rel] };
+    // a design doc says which requirements it serves; never blocked (a codebase map serves none)
+    const found = index.check({ texts: [f.content] });
+    const warning = strictness() !== 'off' && found.anyRequirements && !found.requirements.length ? `${rel} doesn't link any requirement. Say which it serves, e.g. "Covers [FR12](…)", so it shows up under them.` : null;
+    return withWarning({ ok: true, design: s().designs[rel] }, warning);
   }
   function designApprove(as, p) {
     actor(as);
@@ -774,10 +874,17 @@ export function createCore({ store, config, paths }) {
       ...list('Open questions', f.openQuestions),
       ...list('Links', f.links),
     ].filter((l) => l !== null);
+    // minutes are never refused (planning comes before requirements), but they should say what they're about
+    const said = [f.summary, ...(f.keyPoints ?? []), ...(f.decisions ?? []), ...(f.openQuestions ?? []), ...(f.links ?? []), ...(f.actions ?? []).map((x) => (typeof x === 'string' ? x : x.what))];
+    const found = index.check({ refs: f.refs, texts: said });
+    const warning =
+      strictness() !== 'off' && found.anyRequirements && (!found.requirements.length || found.unknown.length)
+        ? `${id} is saved, but ${found.unknown.length ? `${found.unknown.join(', ')} isn't defined anywhere` : "it isn't linked to any requirement"}. Pass refs (the requirement, story or ticket IDs discussed) so the meeting shows up under them.`
+        : null;
     ensureDir(path.join(paths.dir, 'meetings'));
     fs.writeFileSync(path.join(paths.root, rel), body.join('\n'));
-    store.append('minutes.add', as, { id, title: String(f.title), kind, date, file: rel, attendees: f.attendees ?? [], summary: String(f.summary).slice(0, 300) });
-    return { ok: true, id, file: rel };
+    store.append('minutes.add', as, { id, title: String(f.title), kind, date, file: rel, attendees: f.attendees ?? [], summary: String(f.summary).slice(0, 300), refs: idsOf(f.refs) });
+    return withWarning({ ok: true, id, file: rel }, warning);
   }
   function addLink(as, f = {}) {
     actor(as, { allowHuman: true, allowCli: true });
@@ -849,7 +956,7 @@ export function createCore({ store, config, paths }) {
     if (open.length) throw new McError(`${u.id} still has open tickets: ${open.map((t) => `${t.id} (${t.status})`).join(', ')}.`);
     store.append('unit.status', as, { id: u.id, status: 'review' });
     const env = integrationEnv();
-    post(as, { channel: 'general', text: `${u.id} ${u.title} is ready for your review: open HQ → ${s().releases[u.id] ? 'Releases' : 'Epics'}, click through it in Preview (http://localhost:${env.ports.web}), then approve it or ask for changes.` });
+    post(as, { channel: 'general', text: `${u.id} ${u.title} is ready for your review: open HQ → ${s().releases[u.id] ? 'Releases' : 'Epics'}, click through it in Preview (http://localhost:${env.ports.web}), then approve it or ask for changes.` }, { system: true });
     return { ok: true, status: 'review' };
   }
   function reviewUnit(as, id, f = {}) {
@@ -1020,15 +1127,110 @@ export function createCore({ store, config, paths }) {
       .filter(Boolean)
       .join('\n');
     const res = createTicket(by, { title: `Feedback: ${f.text.slice(0, 70)}`, body: `${f.text}\n\n${where}`, kind: 'feedback', ui: true });
-    post(by, { channel: 'general', text: `New feedback ${res.ticket.id} @${lead}: ${f.text}` });
+    post(by, { channel: 'general', text: `New feedback ${res.ticket.id} @${lead}: ${f.text}` }, { system: true });
     return res;
   }
+  /** A change request. Whoever raises it may say what it amends or extends; otherwise the lead maps it. */
   function change(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty change request.');
     const u = f.unit ? unit(f.unit) : null;
-    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : {}) });
-    post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — please post an impact check.` });
-    return res;
+    const amends = idsOf(f.amends);
+    const ext = idsOf(f.extends);
+    checkMapping(amends, ext, { allowEmpty: true });
+    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', amends, extends: ext, ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : {}) });
+    const impact = amends.length || ext.length ? index.impact(res.ticket.id).line : null;
+    if (impact) post(by, { channel: `ticket:${res.ticket.id}`, text: impact }, { system: true });
+    post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — ${impact ?? 'please map it to the requirements it amends or extends (mc_map_change) and post an impact check.'}` }, { system: true });
+    return impact ? { ...res, impact } : res;
+  }
+
+  // ---------- requirements and change requests ----------
+  function checkMapping(amends, ext, { allowEmpty = false } = {}) {
+    for (const x of [...amends, ...ext]) {
+      if (!index.isRequirement(x)) throw new McError(`${x} isn't a requirement, story or epic${index.node(x) ? ` (it's a ${index.node(x).kind})` : ' (nothing is registered under that ID)'}.`);
+    }
+    if (!allowEmpty && !amends.length && !ext.length) {
+      throw new McError('Say which requirements it amends (changes what they say) or extends (builds on); an epic counts. If the project has none yet, define the one it adds with mc_requirement (change: its ID).');
+    }
+  }
+  /**
+   * Map a change request (or feedback) to the requirements it amends or
+   * extends. Returns, and posts in its thread, the impact: tickets, designs,
+   * stories and open questions that sit on what it amends.
+   */
+  function mapChange(as, id, f = {}) {
+    if (!canPlan(as)) throw new McError('Only the lead, the product manager or a person maps a change request.');
+    const t = ticket(id);
+    if (!['change', 'feedback'].includes(t.kind)) throw new McError(`${t.id} is a ${t.kind} ticket. Map change requests and feedback; give other tickets refs (mc_update_ticket).`);
+    const amends = idsOf(f.amends);
+    const ext = idsOf(f.extends);
+    checkMapping(amends, ext);
+    store.append('ticket.map', as, { id: t.id, amends, extends: ext });
+    const imp = index.impact(t.id);
+    post(as === 'cli' ? lead : as, { channel: `ticket:${t.id}`, text: imp.line }, { system: true });
+    const next = imp.affected.tickets.length
+      ? `Post the impact in #general. For each affected ticket: reopen it (mc_reopen) or confirm it still holds (mc_decide with refs [ticket, "${t.id}"]). Record the new wording with mc_requirement (id, text, change: "${t.id}"). Changes to a release's or epic's scope wait for the human's OK.`
+      : `Post the impact in #general, record any new wording with mc_requirement (change: "${t.id}"), then split it into tickets with refs ["${t.id}"].`;
+    return { ok: true, ...imp, next };
+  }
+  /**
+   * Add a requirement (from the brief, MVP scope or a change request), or
+   * amend an existing one, PRD or not, with the change request behind it.
+   * Written to .madcompany/log/requirements.md; the PRD itself is never edited.
+   */
+  function defineRequirement(as, f = {}) {
+    if (!canPlan(as)) throw new McError('Only the lead, the product manager or a person defines requirements.');
+    const text = String(f.text ?? '').trim();
+    if (!text) throw new McError('A requirement needs its text: what the product must do.');
+    const chg = f.change ? ticket(f.change) : null;
+    if (chg && !['change', 'feedback'].includes(chg.kind)) throw new McError(`${chg.id} isn't a change request.`);
+    if (f.id) {
+      const n = index.node(f.id);
+      if (!n || !['requirement', 'story'].includes(n.kind)) throw new McError(`${f.id} isn't a requirement or story. Leave out id to add a new requirement.`);
+      if (!chg && strictness() === 'strict') throw new McError(`Amending ${n.id} needs the change request behind it (change: "<ID>"). Raise one first (the human's, or mc_escalate).`);
+      store.append('requirement.amend', as, { id: n.id, text, change: chg?.id ?? null });
+      if (chg && !chg.amends.some((x) => index.keyOf(x) === n.key)) store.append('ticket.map', as, { id: chg.id, amends: [...chg.amends, n.id], extends: chg.extends });
+      return { ok: true, id: n.id, amended: true, ...(chg ? { impact: index.impact(chg.id).line } : {}) };
+    }
+    const kind = String(f.kind ?? 'FR').toUpperCase();
+    if (!['FR', 'NFR', 'UXR'].includes(kind)) throw new McError('kind must be FR, NFR or UXR.');
+    if (!String(f.title ?? '').trim()) throw new McError('A new requirement needs a short title.');
+    const ext = idsOf(f.extends);
+    checkMapping([], ext, { allowEmpty: true });
+    if (chg && !ext.length && !chg.amends.length && !chg.extends.length && index.check().anyRequirements && strictness() === 'strict') {
+      throw new McError(`A requirement added by ${chg.id} builds on what exists: pass extends (the requirements or epic it extends).`);
+    }
+    const id = index.nextRequirementId(kind);
+    store.append('requirement.add', as, { id, kind, title: String(f.title).trim(), text, extends: ext, change: chg?.id ?? null, source: f.source ? String(f.source) : null });
+    if (chg && ext.some((x) => !chg.extends.includes(x))) store.append('ticket.map', as, { id: chg.id, amends: chg.amends, extends: [...new Set([...chg.extends, ...ext])] });
+    return { ok: true, id, link: `[${id}](.madcompany/log/requirements.md#${id.toLowerCase()})` };
+  }
+
+  // ---------- notes: what a member knows about a story or requirement ----------
+  function note(as, f = {}) {
+    actor(as, { allowHuman: true });
+    const about = (f.about ?? []).map(String).filter((x) => x.trim());
+    if (!about.length) throw new McError('A note is about something: pass about, e.g. ["Story 2.3"] or ["APP-31", "FR12"].');
+    if (!String(f.text ?? '').trim()) throw new McError('Empty note.');
+    const found = index.check({ refs: about, texts: [f.text] });
+    if (found.unknown.length) throw new McError(`${found.unknown.join(', ')} ${found.unknown.length > 1 ? "aren't" : "isn't"} defined anywhere (mc_lookup checks an ID).`);
+    const warning = traced('This note', found, 'Make it about a ticket, story or requirement.');
+    const id = nextId('note', 'N');
+    store.append('note.add', as, { id, about: idsOf(about), text: String(f.text).trim(), scope: f.scope === 'project' ? 'project' : 'story' });
+    return withWarning({ ok: true, id }, warning);
+  }
+
+  // ---------- the project index: look up instead of reading files ----------
+  function ref(as, id, opts = {}) {
+    actor(as, { allowHuman: true, allowCli: true });
+    return index.card(id, { only: opts.only ?? null });
+  }
+  function section(as, id) {
+    actor(as, { allowHuman: true, allowCli: true });
+    return index.section(id);
+  }
+  function traceView() {
+    return { ...traceSummary(500), requirements: index.requirements() };
   }
 
   return {
@@ -1099,6 +1301,14 @@ export function createCore({ store, config, paths }) {
     ticket,
     feedback,
     change,
+    mapChange,
+    defineRequirement,
+    note,
+    ref,
+    section,
+    traceView,
+    traceSummary,
+    index,
     minutes,
     addLink,
     STATUSES,

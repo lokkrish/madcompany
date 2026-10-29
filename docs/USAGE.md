@@ -154,6 +154,7 @@ Then the lead plans the next release with you (`/mc-plan-release`). Spec-driven 
 | Human help | Everything only you can do, with steps, which keys are still missing, and what's waiting on it |
 | Tools | MCP servers, plugins and skills: who uses what, what agents may do, suggestions, and recent calls |
 | Decisions | Everything the team decided without you, and why |
+| Trace | How much work and discussion maps to requirements, what to fix, and every requirement with its tickets and change requests. Each ID opens a page with everything linked to it |
 | Team | Agents by department with roles, domains, models, ports and databases, handoffs and memory. Hire and remove; invite people |
 | Preview | Your running app at phone, tablet and desktop widths, plus feedback |
 
@@ -210,6 +211,16 @@ Send each link privately. Opening it signs that person in; the sidebar shows who
 - Your agents and the CLI still talk to HQ only from your machine.
 - HQ serves plain HTTP. On your home or office network that's usually fine; for anyone outside it, use a private network such as Tailscale, or an HTTPS tunnel, rather than opening the port to the internet. Requests that arrive through a proxy or tunnel are never treated as coming from your machine.
 - `--bind 192.168.1.20` listens on one address only; `--host name` sets the address printed in links.
+
+## 12. Requirements and traceability
+
+HQ keeps a project index: every requirement, story, epic, ticket, change request, decision, question, fact, note, design doc, meeting and message, and how they link. Agents use it instead of reading whole files: `mc_ref FR12` lists everything linked to FR12, `mc_section Story 2.3` returns just that story, and `mc_claim` hands an agent its ticket's requirements as they stand now, with the decisions, questions, facts and notes on them. You get the same from HQ → **Trace** (click any ID) and `npx madcompany ref FR12`.
+
+- **Strict by default.** New projects have `traceability: strict` in `team.yaml`: every ticket refs the requirements it implements (or is a `chore`), decisions and questions name their ticket or requirements, and agents' messages outside a ticket thread name what they're about. HQ refuses the rest with a message saying how to fix it. `warn` only warns; `off` skips the checks. Projects set up before this get `warn` until you add the line.
+- **No PRD?** In UI, MVP and UI-MVP modes, `/mc-plan-release` defines the release's requirements with `mc_requirement` (FR1, FR2…) from your brief and MVP scope; in brownfield, `/mc-scan` records what the app already does. You can add one on the Trace page too.
+- **Change requests.** In the Inbox, say what should change and, if you know, which requirements it **amends** (changes what they say) or **extends** (builds on), e.g. `FR12` or `Epic 2`. Otherwise the lead maps it with `mc_map_change`; nobody starts it until it's mapped. Mapping posts the impact in the change's thread: the tickets, designs, stories and open questions on what it amends. The new wording is recorded in `.madcompany/log/requirements.md` (the PRD isn't edited), and every agent working on that requirement sees it from then on.
+- **What to fix.** The Trace page, the lead's morning briefing and `npx madcompany trace` list problems the index can see: changes not mapped yet, tickets done (or in progress) before a change amended their requirement, references to IDs that don't exist, reopened dependencies, untraced work. The lead clears a "done before the change" item by reopening the ticket or logging a decision that refs both. Add `npx madcompany trace --strict` to CI to fail on any of them.
+- **Notes.** Agents leave `mc_note`s on the story or requirement they worked on (edge cases, how it works). They come back to whoever picks up that story next, and are in `.madcompany/log/notes.md`.
 
 ## Troubleshooting
 

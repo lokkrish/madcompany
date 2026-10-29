@@ -73,8 +73,8 @@ test('merge queue: merges an approved ticket, reverts and reopens on failing che
   const c = await connect(paths);
   const core = c.core;
   core.startDay('lead');
-  core.createTicket('lead', { title: 'Good', epic: 'E1' });
-  core.createTicket('lead', { title: 'Bad', epic: 'E1' });
+  core.createTicket('lead', { title: 'Good', epic: 'E1', kind: 'chore' });
+  core.createTicket('lead', { title: 'Bad', epic: 'E1', kind: 'chore' });
   core.claim('arjun', 'APP-1');
   assert.throws(() => core.submit('arjun', 'APP-1', { summary: 'x', checks: { test: 'pass' } }), /mc\/app-1 doesn't exist/);
   g('branch', 'mc/app-1', 'main');

@@ -74,14 +74,24 @@ export function buildMcpServer({ core, notices, registry, version }) {
   tool(
     'mc_ask',
     'Ask a teammate (or "lead") a question. Returns a question ID. Don\'t wait for the answer: park the ticket with mc_block if you are stuck.',
-    { as, to: z.string(), question: z.string(), ticket: z.string().optional(), links: list('Links to what you are asking about') },
+    { as, to: z.string(), question: z.string(), ticket: z.string().optional(), refs: list('Requirement / story IDs it is about, if not just the ticket'), links: list('Links to what you are asking about') },
     ({ as, ...f }) => core.ask(as, f),
   );
   tool('mc_answer', 'Answer a question (Q-n) addressed to you.', { as, q: z.string(), answer: z.string() }, ({ as, q, answer }) => core.answer(as, q, answer));
   tool(
     'mc_decide',
-    'Log a decision you made without the human (who, what, why, alternatives).',
-    { as, title: z.string(), decision: z.string(), why: z.string(), alternatives: z.string().optional(), links: list('Supporting links'), ticket: z.string().optional() },
+    'Log a decision you made without the human (who, what, why, alternatives). Say what it is about: the ticket, or refs.',
+    {
+      as,
+      title: z.string(),
+      decision: z.string(),
+      why: z.string(),
+      alternatives: z.string().optional(),
+      links: list('Supporting links'),
+      ticket: z.string().optional(),
+      refs: list('Requirement / story / ticket IDs it affects'),
+      supersedes: z.string().optional().describe('An earlier decision this replaces, e.g. DEC-4'),
+    },
     ({ as, ...f }) => core.decide(as, f),
   );
   tool('mc_facts', 'Answers the human has already given. Check before asking anything.', { as }, () => core.facts());
@@ -103,6 +113,19 @@ export function buildMcpServer({ core, notices, registry, version }) {
     ({ as, ...f }) => core.designWrite(as, f),
   );
   tool('mc_design_approve', 'Approve a design doc you depend on.', { as, path: z.string() }, ({ as, path }) => core.designApprove(as, path));
+  tool(
+    'mc_ref',
+    'Everything linked to one ID, from the project index: where it is defined, what it is part of, the tickets implementing it, changes amending or extending it, decisions, questions, discussion, designs and notes. Use it instead of reading whole files.',
+    { as, id: z.string().describe('Any ID (FR12, Story 2.3, Epic 1, APP-31, DEC-4, Q-7, N-2) or a design doc path'), only: z.string().optional().describe('List one group in full, e.g. "discussion", "decisions", "tickets"') },
+    ({ as, id, only }) => core.ref(as, id, { only }),
+  );
+  tool('mc_section', 'The text of one ID: just its section of the PRD or epics, a ticket body, a decision… With amendments for a requirement.', { as, id: z.string() }, ({ as, id }) => core.section(as, id));
+  tool(
+    'mc_note',
+    'Note what you learned about a story, requirement or ticket (edge cases, gotchas, how it works). It shows up under those IDs for whoever works on them next.',
+    { as, about: z.array(z.string()).describe('IDs it is about, e.g. ["Story 2.3", "FR12"]'), text: z.string(), scope: z.enum(['story', 'project']).optional().describe('story: detail for this story; project: holds across the project') },
+    ({ as, ...f }) => core.note(as, f),
+  );
   tool('mc_memory', 'Read your identity and your two memories (work, comms).', { as }, ({ as }) => core.memoryRead(as));
   tool(
     'mc_memory_write',
@@ -124,6 +147,7 @@ export function buildMcpServer({ core, notices, registry, version }) {
       decisions: list('Decisions made, one line each'),
       actions: list('Action items: "what (who)"'),
       openQuestions: list('Still open'),
+      refs: list('Requirement, story or ticket IDs discussed'),
       links: list('Links to the files, tickets, artifacts discussed'),
       source: z.string().optional().describe('e.g. the Claude Code session or the BMad workflow'),
     },
@@ -186,15 +210,16 @@ export function buildMcpServer({ core, notices, registry, version }) {
       domain: z.string().optional(),
       deps: list('Ticket IDs that must be done first'),
       ui: z.boolean().optional().describe('True if it changes what users see (needs a screenshot)'),
-      refs: list('Requirement / story IDs this implements'),
+      refs: list('Requirement / story / epic IDs it implements, or the change request it is part of'),
+      kind: z.enum(['task', 'chore']).optional().describe('chore: implements no requirement (tooling, checks, setup)'),
       assignee: z.string().optional(),
     },
     ({ as, ...f }) => core.createTicket(as, f),
   );
   tool(
     'mc_update_ticket',
-    'Lead: change a ticket\'s title, body, domain, deps, ui, epic, release or refs.',
-    { as, id, title: z.string().optional(), body: z.string().optional(), domain: z.string().optional(), deps: list('New dependency list'), ui: z.boolean().optional(), epic: z.string().optional(), release: z.string().optional(), refs: list('Refs') },
+    'Lead: change a ticket\'s title, body, domain, deps, ui, epic, release, refs or kind (task ↔ chore).',
+    { as, id, title: z.string().optional(), body: z.string().optional(), domain: z.string().optional(), deps: list('New dependency list'), ui: z.boolean().optional(), epic: z.string().optional(), release: z.string().optional(), refs: list('Refs'), kind: z.enum(['task', 'chore']).optional() },
     ({ as, id, ...fields }) => core.updateTicket(as, id, Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))),
   );
   tool(
@@ -214,9 +239,31 @@ export function buildMcpServer({ core, notices, registry, version }) {
   tool(
     'mc_escalate',
     'Lead: ask the human. Multiple-choice only: at least 2 options and a recommended one. Link the sources.',
-    { as, question: z.string().optional(), q: z.string().optional().describe('Existing question ID to pass up'), options: z.array(z.string()), recommended: z.string().optional(), links: list('Links'), ticket: z.string().optional() },
+    { as, question: z.string().optional(), q: z.string().optional().describe('Existing question ID to pass up'), options: z.array(z.string()), recommended: z.string().optional(), links: list('Links'), ticket: z.string().optional(), refs: list('Requirement / story IDs it is about') },
     ({ as, ...f }) => core.escalate(as, f),
   );
+  tool(
+    'mc_map_change',
+    'Lead or PM: map a change request (or feedback ticket) to the requirements it amends (changes what they say) or extends (builds on). Required before anyone starts it. Returns the impact: tickets, designs, stories and open questions on what it amends, and posts it in the ticket thread.',
+    { as, id, amends: list('Requirement / story / epic IDs whose meaning changes'), extends: list('Requirement / story / epic IDs it builds on') },
+    ({ as, id, ...f }) => core.mapChange(as, id, f),
+  );
+  tool(
+    'mc_requirement',
+    'Lead or PM: add a requirement (from the brief, MVP scope or a change request; gets the next FR/NFR/UXR number), or amend one (pass id) with the change request behind it. Written to .madcompany/log/requirements.md; the PRD is not edited.',
+    {
+      as,
+      id: z.string().optional().describe('Existing requirement to amend, e.g. FR12'),
+      title: z.string().optional().describe('Short title of a new requirement'),
+      text: z.string().describe('What the product must do (for an amendment: the new wording)'),
+      kind: z.enum(['FR', 'NFR', 'UXR']).optional(),
+      extends: list('Requirements or epic a new one builds on'),
+      change: z.string().optional().describe('The change request behind it, e.g. APP-17'),
+      source: z.string().optional().describe('Where it comes from, e.g. a link to the brief'),
+    },
+    ({ as, ...f }) => core.defineRequirement(as, f),
+  );
+  tool('mc_trace', 'Lead: traceability. How much work and discussion maps to requirements, and what to fix (unmapped changes, work done before a change amended it, unknown IDs, reopened dependencies).', { as }, () => core.traceSummary(100));
 
   return server;
 }

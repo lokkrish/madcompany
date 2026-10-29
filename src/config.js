@@ -29,7 +29,12 @@ const DEFAULTS = {
   library: { sessions: true, dirs: [] },
   allow_push: false,
   snapshot: true,
+  // strict: tickets, decisions, questions and agents' messages must trace to a requirement, and a
+  // change request must name the requirements it amends or extends before work starts on it.
+  // warn: the same checks only warn. Projects from before this setting existed get warn.
+  traceability: 'warn',
 };
+const TRACEABILITY = ['strict', 'warn', 'off'];
 
 export function parseTeam(text) {
   const raw = YAML.parse(text) ?? {};
@@ -55,6 +60,7 @@ export function parseTeam(text) {
     assign: Object.fromEntries(Object.entries(cfg.tools.assign ?? {}).map(([k, v]) => [k, toList(v)])),
   };
   for (const r of [...cfg.tools.allow, ...cfg.tools.human]) if (!/^mcp__[\w.*-]+/.test(r)) throw new McError(`tools.allow and tools.human take MCP tool names like mcp__github__create_pull_request or mcp__linear, got "${r}"`);
+  if (!TRACEABILITY.includes(cfg.traceability)) throw new McError(`traceability must be one of ${TRACEABILITY.join(', ')}, got "${cfg.traceability}"`);
   if (!MODES[cfg.mode]) throw new McError(`mode must be one of ${Object.keys(MODES).join(', ')}, got "${cfg.mode}"`);
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(cfg.project.key)) {
     throw new McError(`project.key must be 2-10 capital letters or digits, got "${cfg.project.key}"`);

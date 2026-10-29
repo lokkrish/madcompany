@@ -77,6 +77,8 @@ function linkify(text) {
 }
 
 const idLink = (id) => (id ? `<a href="#/ticket/${esc(id)}">${esc(id)}</a>` : '');
+// requirement IDs to pick from when mapping a change request
+const reqDatalist = () => `<datalist id="req-ids">${(S.trace?.requirements ?? []).map((r) => `<option value="${esc(r.id)}">${esc(r.title)}</option>`).join('')}</datalist>`;
 const byRelease = () => S.config.mode.unit === 'release';
 const blockerLink = (x) => (S.tickets[x] ? idLink(x) : /^HELP-/.test(x) ? `<a href="#/help/${esc(x)}">${esc(x)}</a>` : `<a href="#/questions/${esc(x)}">${esc(x)}</a>`);
 const unitWord = (plural) => (byRelease() ? (plural ? 'Releases' : 'release') : plural ? 'Epics' : 'epic');
@@ -104,6 +106,7 @@ async function refresh() {
   setBadge('inbox-badge', n);
   setBadge('help-badge', S.dashboard.help.open);
   setBadge('review-badge', S.dashboard.inReview.length);
+  setBadge('trace-badge', S.trace?.diagnostics ?? 0);
   document.getElementById('units-label').textContent = unitWord(true);
   const all = n + S.dashboard.help.open + S.dashboard.inReview.length;
   document.title = `${all ? `(${all}) ` : ''}${S.config.project.name} · madcompany HQ`;
@@ -140,9 +143,9 @@ function render() {
   if (!S) return;
   const r = route();
   const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name === 'epics' ? 'releases' : r.name;
-  const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : viewName; // sidebar highlight
+  const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : r.name === 'ref' ? 'trace' : viewName; // sidebar highlight
   document.querySelectorAll('.side a').forEach((a) => a.classList.toggle('on', a.dataset.nav === name));
-  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage, tools: toolsPage };
+  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage, tools: toolsPage, trace: tracePage, ref: refPage };
   const view = views[viewName] ?? dashboard;
   const key = location.hash;
   const keepScroll = key === lastView;
@@ -229,7 +232,7 @@ function dashboard() {
   <div class="grid g3">
     <div class="card ${waiting ? 'needs' : ''}"><h3>Needs you</h3><div class="big">${waiting}</div><div class="sub stack">${needsLines.map((l) => `<div>${l}</div>`).join('') || 'Nothing waiting on you.'}</div></div>
     <div class="card stack"><h3>${unitWord(true)} <span class="sub" style="text-transform:none;font-weight:400">· ${esc(d.mode.title)}</span></h3>${epics}</div>
-    <div class="card"><h3>Today</h3><div>${t.ticketsMoved} ticket moves · ${t.commits} commits · ${t.messages} messages</div><div class="sub">Last checks: ${esc(checks)}</div></div>
+    <div class="card"><h3>Today</h3><div>${t.ticketsMoved} ticket moves · ${t.commits} commits · ${t.messages} messages</div><div class="sub">Last checks: ${esc(checks)}</div>${S.trace ? `<div class="sub"><a href="#/trace">Trace</a>: ${pct(S.trace.coverage.tickets)} of tickets and ${pct(S.trace.coverage.discussion)} of discussion map to requirements${S.trace.diagnostics ? ` · ${S.trace.diagnostics} to fix` : ''}</div>` : ''}</div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Team</h3><table class="team">${team}</table></div>
   <div class="grid g3" style="margin-top:14px">
@@ -326,6 +329,8 @@ function ticketView(r) {
     : '';
   const shots = t.attachments.filter((a) => a.kind === 'screenshot');
   const thread = S.messages.filter((m) => m.channel === `ticket:${t.id}`);
+  const traced = S.trace?.tickets?.[t.id] ?? [];
+  const unmapped = (S.trace?.unmapped ?? []).includes(t.id);
   return `
   <div class="top"><div class="grow"><div class="sub"><a href="#/board">Board</a> / ${esc(t.id)}</div><h1>${esc(t.title)}</h1></div>${pill(t.status, STATUS_LABEL[t.status])}</div>
   <div class="grid g2">
@@ -339,8 +344,11 @@ function ticketView(r) {
         ${t.blockedBy.length ? `<dt>Blocked by</dt><dd>${t.blockedBy.map((x) => linkify(x)).join(', ')}</dd>` : ''}
         ${S.help.some((h) => h.tickets.includes(t.id)) ? `<dt>Human help</dt><dd>${S.help.filter((h) => h.tickets.includes(t.id)).map((h) => `<a href="#/help/${esc(h.id)}">${esc(h.id)}</a> ${pill(h.status === 'open' ? 'blocked' : 'done', h.status)}`).join(' ')}</dd>` : ''}
         <dt>Refs</dt><dd>${refLinks || '–'}</dd>
+        ${t.kind === 'change' ? `<dt>Amends</dt><dd>${(t.amends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd><dt>Extends</dt><dd>${(t.extends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd>` : ''}
+        <dt>Traces to</dt><dd>${traced.map((x) => refLink(x)).join(', ') || (t.kind === 'chore' ? '<span class="sub">a chore: no requirement</span>' : '<span class="tag warn">no requirement</span>')} · <a href="${refHref(t.id)}">everything linked</a></dd>
         <dt>Attempts</dt><dd>${t.attempts}</dd>
       </dl>
+      ${unmapped && can('member') ? `<form class="callout stack" data-form="map" data-id="${esc(t.id)}"><div><b>Not mapped yet.</b> Which requirements does this ${t.kind === 'change' ? 'change' : 'feedback'} amend or extend? Nobody starts it until it's mapped.</div><div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends, e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends, e.g. Epic 2" style="flex:1" aria-label="Extends"><button class="primary" type="submit">Map it</button></div>${reqDatalist()}</form>` : ''}
       ${cp}
       ${t.body ? `<div class="prose">${linkify(t.body)}</div>` : ''}
     </div>
@@ -379,7 +387,9 @@ function inbox(r) {
   <div class="top"><h1 class="grow">Inbox</h1></div>
   <div class="stack">${openHtml}</div>
   <div class="card" style="margin-top:14px"><h3>Request a change</h3>
-    <form class="stack" data-form="change" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead will post an impact check." aria-label="Change request"></textarea><button class="primary" type="submit">Send to the lead</button></form>
+    <form class="stack" data-form="change" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead maps it to the requirements it changes and posts an impact check." aria-label="Change request"></textarea>
+      <div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends (optional), e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends (optional), e.g. Epic 2" style="flex:1" aria-label="Extends"></div>${reqDatalist()}
+      <div><button class="primary" type="submit">Send to the lead</button> <a href="#/trace" class="sub">See the requirements</a></div></form>
   </div>
   <div class="grid g2" style="margin-top:14px">
     <div class="card feed"><h3>Facts (your answers)</h3>${S.facts.map((f) => `<div class="item" id="x-${esc(f.id)}"><b>${esc(f.id)}</b> ${linkify(f.text)}</div>`).join('') || '<p class="empty">None yet.</p>'}</div>
@@ -411,6 +421,117 @@ function modelPicker(m) {
 }
 
 let ROLES = null;
+// ---------- trace: the project index ----------
+const refHref = (id) => `#/ref/${encodeURIComponent(id)}`;
+const refLink = (id, label) => `<a href="${refHref(id)}">${esc(label ?? id)}</a>`;
+const pct = (x) => (x?.total ? `${Math.round((100 * x.traced) / x.total)}%` : '–');
+const idList = (v) => String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const REQ_STATE = { none: ['draft', 'No tickets'], planned: ['todo', 'Planned'], building: ['in_progress', 'Building'], done: ['done', 'Done'] };
+// an async page re-renders on every live update; keep what someone is typing
+function keepForm(sel, fn) {
+  const f = $main.querySelector(sel);
+  const vals = f ? Object.fromEntries([...f.elements].filter((e) => e.name).map((e) => [e.name, e.value])) : null;
+  fn();
+  const g = $main.querySelector(sel);
+  if (vals && g) for (const [k, v] of Object.entries(vals)) if (g.elements[k]) g.elements[k].value = v;
+}
+
+function tracePage() {
+  api('/api/trace')
+    .then((t) => {
+      const c = t.coverage;
+      const rows = t.requirements
+        .map((r) => {
+          const [cls, label] = REQ_STATE[r.state];
+          const talk = [r.decisions && `${r.decisions} decision${r.decisions > 1 ? 's' : ''}`, r.questions && `${r.questions} question${r.questions > 1 ? 's' : ''}`, r.discussion && `${r.discussion} message${r.discussion > 1 ? 's' : ''}`, r.notes && `${r.notes} note${r.notes > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
+          return `<tr id="x-${esc(r.id)}">
+          <td style="white-space:nowrap"><b>${refLink(r.id)}</b>${r.ledger ? ' <span class="tag">HQ</span>' : ''}</td>
+          <td>${esc(r.title)}${r.amended_by ? `<div class="sub">Now: ${linkify(r.text)} <span class="tag warn">amended by ${esc(r.amended_by)}</span></div>` : ''}${r.parent ? `<div class="sub">in ${refLink(r.parent)}</div>` : ''}</td>
+          <td>${pill(cls, label)}</td>
+          <td><div class="meta" style="display:flex;flex-wrap:wrap;gap:4px">${r.tickets.map((x) => `<a class="tag" href="#/ticket/${esc(x.id)}" title="${esc(STATUS_LABEL[x.status])}">${esc(x.id)}</a>`).join('')}${r.changes.map((x) => `<a class="tag warn" href="${refHref(x.id)}">${esc(x.how)} by ${esc(x.id)}</a>`).join('')}</div></td>
+          <td class="sub">${talk}</td></tr>`;
+        })
+        .join('');
+      keepForm('form[data-form="requirement"]', () => {
+        $main.innerHTML = `<div class="top"><h1 class="grow">Trace</h1><span class="sub">Every ticket, decision, question and message maps back to a requirement. Mode: <b>${esc(t.mode)}</b> (<code>traceability</code> in team.yaml)</span></div>
+        <div class="grid g3">
+          <div class="card"><h3>Requirements</h3><div class="big">${c.requirements.with_tickets}/${c.requirements.total}</div><div class="sub">have tickets · ${c.requirements.done} done</div></div>
+          <div class="card"><h3>Work</h3><div class="big">${pct(c.tickets)}</div><div class="sub">of ${c.tickets.total} tickets trace to a requirement${c.chores ? ` · ${c.chores} chore${c.chores > 1 ? 's' : ''}` : ''}</div></div>
+          <div class="card"><h3>Discussion</h3><div class="big">${pct(c.discussion)}</div><div class="sub">of ${c.discussion.total} messages · decisions ${pct(c.decisions)} · questions ${pct(c.questions)}</div></div>
+        </div>
+        <div class="card ${t.diagnostics.length ? 'needs' : ''}" style="margin-top:14px"><h3>To fix (${t.diagnostics.length})</h3>${t.diagnostics.map((d) => `<div class="qitem">${linkify(d)}</div>`).join('') || '<p class="empty">Nothing to fix.</p>'}${t.more ? `<p class="sub">${esc(t.more)}</p>` : ''}</div>
+        <div class="card" style="margin-top:14px"><h3>Requirements</h3>${rows ? `<table class="team trace-rows">${rows}</table>` : '<p class="empty">No requirements yet. Import the PRD (<code>npx madcompany import</code>) or add one below.</p>'}</div>
+        ${can('member') ? `<div class="card" style="margin-top:14px"><h3>Add a requirement</h3><form class="stack" data-form="requirement"><div class="row"><select name="kind" aria-label="Kind"><option>FR</option><option>NFR</option><option>UXR</option></select><input name="title" placeholder="Short title" style="flex:1" aria-label="Title"></div><textarea name="text" rows="2" placeholder="What the product must do" aria-label="Requirement"></textarea><input name="extends" placeholder="Builds on (optional), e.g. FR3, Epic 2" aria-label="Extends"><div><button class="primary" type="submit">Add requirement</button></div></form></div>` : ''}`;
+      });
+      $main.querySelector('form[data-form="requirement"]')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const body = { kind: f.kind.value, title: f.title.value.trim(), text: f.text.value.trim(), extends: idList(f.extends.value) };
+        if (!body.title || !body.text) return;
+        f.reset();
+        act(() => api('/api/requirement', body));
+      });
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
+}
+
+/** Where an item lives in HQ (its ticket, decision, file…), next to its index page. */
+function nativeHref(c) {
+  const k = c.kind.split(' ')[0];
+  const at = { ticket: `#/ticket/${c.id}`, decision: `#/decisions/${c.id}`, question: `#/questions/${c.id}`, fact: `#/facts/${c.id}`, help: `#/help/${c.id}`, release: `#/releases/${c.id}` }[k];
+  if (at) return at;
+  if (k === 'message') return `#/chat/${encodeURIComponent(c.channel)}`;
+  const m = /\]\(([^)#]+)(?:#([^)]+))?\)/.exec(c.link ?? '');
+  return m ? `#/file/${m[1]}${m[2] ? `?a=${encodeURIComponent(m[2])}` : ''}` : null;
+}
+
+function refPage(r) {
+  const id = r.parts.slice(1).join('/');
+  api(`/api/ref?id=${encodeURIComponent(id)}`)
+    .then((c) => {
+      const statusPill = (st) => (st ? pill(st, STATUS_LABEL[st] ?? st) : '');
+      const item = (x) =>
+        x.text
+          ? `<div class="qitem"><b>${esc(nameOf(x.by))}</b> <span class="sub">in <a href="#/chat/${encodeURIComponent(x.in)}">${esc(channelLabel(x.in))}</a></span>${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}<div>${linkify(x.text)}</div></div>`
+          : `<div class="qitem">${refLink(x.id)} ${esc(x.title ?? '')} ${statusPill(x.status)}${x.kind ? ` <span class="tag">${esc(x.kind)}</span>` : ''}${x.by ? ` <span class="sub">· ${esc(nameOf(x.by))}</span>` : ''}${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}</div>`;
+      const skip = new Set(['traces_to', 'diagnostics']);
+      const groups = Object.entries(c).filter(([k, v]) => Array.isArray(v) && !skip.has(k) && v.length);
+      const native = nativeHref(c);
+      const d = c.discussion;
+      const discussion = d
+        ? `<div class="card"><h3>Discussion (${d.messages})</h3><div class="sub">${Object.entries(d.channels).map(([ch, n]) => `<a href="#/chat/${encodeURIComponent(ch)}">${esc(channelLabel(ch))}</a> ${n}`).join(' · ')}</div>${d.latest.map(item).join('')}${d.messages > d.latest.length ? `<button data-more="discussion">Show all ${d.messages}</button><div id="more-discussion"></div>` : ''}</div>`
+        : '';
+      $main.innerHTML = `<div class="top"><div class="grow"><div class="sub"><a href="#/trace">Trace</a> / ${esc(c.kind)}</div><h1>${esc(c.id)} ${esc(c.kind === 'message' ? '' : c.title)}</h1></div>${statusPill(c.status)}</div>
+      <div class="card stack">
+        ${c.text ? `<div class="prose" style="font-size:15px">${linkify(c.text)}</div>` : ''}
+        ${c.amended_by ? `<div><span class="tag warn">amended by ${esc(c.amended_by)}</span> <span class="sub">The original wording is in its definition.</span></div>` : ''}
+        ${c.traces_to ? `<div><span class="sub">Traces to</span> ${c.traces_to.map((x) => refLink(x.id)).join(', ') || '<span class="tag warn">no requirement</span>'}</div>` : ''}
+        <div class="row" style="flex-wrap:wrap">${native ? `<a href="${esc(native)}">Open ${c.defined ? esc(c.defined) : 'it'}</a>` : ''}<button data-section="${esc(c.id)}">Show the definition</button></div>
+        <div id="section-text"></div>
+        ${c.diagnostics ? `<div class="callout stack">${c.diagnostics.map((x) => `<div>${linkify(x)}</div>`).join('')}</div>` : ''}
+      </div>
+      <div class="grid g2" style="margin-top:14px">${groups.map(([name, list]) => `<div class="card"><h3>${esc(name)} (${list.length}${c.more?.[name] ? '+' : ''})</h3>${list.map(item).join('')}${c.more?.[name] ? `<button data-more="${esc(name)}">Show all</button><div id="more-${esc(name.replace(/\W+/g, '-'))}"></div>` : ''}</div>`).join('')}${discussion}</div>
+      ${!groups.length && !d ? '<div class="card" style="margin-top:14px"><p class="empty">Nothing links to it yet.</p></div>' : ''}`;
+      $main.querySelector('[data-section]')?.addEventListener('click', async (e) => {
+        const box = document.getElementById('section-text');
+        if (box.innerHTML) return (box.innerHTML = '');
+        const sec = await api(`/api/section?id=${encodeURIComponent(e.target.dataset.section)}`);
+        box.innerHTML = `<div class="card prose" style="background:var(--panel-2)">${linkify(sec.text ?? '')}</div>${(sec.amendments ?? []).map((a) => `<div class="callout">Amended by ${refLink(a.change)} (${esc(a.date)}, ${esc(a.by)}): ${linkify(a.text)}</div>`).join('')}`;
+      });
+      $main.querySelectorAll('[data-more]').forEach((b) =>
+        b.addEventListener('click', async () => {
+          const all = await api(`/api/ref?id=${encodeURIComponent(c.id)}&only=${encodeURIComponent(b.dataset.more)}`);
+          const box = document.getElementById(`more-${b.dataset.more.replace(/\W+/g, '-')}`);
+          box.innerHTML = (all[b.dataset.more] ?? []).map(item).join('');
+          b.remove();
+        }),
+      );
+    })
+    .catch((e) => ($main.innerHTML = `<div class="top"><h1 class="grow">${esc(id)}</h1></div><p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
+}
+
 function team(r) {
   const focus = r.parts[1];
   const card = (m) => {
@@ -834,11 +955,19 @@ function wire(r) {
   );
   $main.querySelector('form[data-form="change"]')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    const ta = e.target.querySelector('textarea');
-    const text = ta.value.trim();
+    const f = e.target;
+    const text = f.text.value.trim();
     if (!text) return;
-    ta.value = '';
-    act(() => api('/api/change', { text }));
+    const body = { text, amends: idList(f.amends.value), extends: idList(f.extends.value) };
+    act(async () => {
+      await api('/api/change', body);
+      f.reset();
+    });
+  });
+  $main.querySelector('form[data-form="map"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    act(() => api('/api/map', { id: f.dataset.id, amends: idList(f.amends.value), extends: idList(f.extends.value) }));
   });
   $main.querySelectorAll('[data-filter]').forEach((sel) =>
     sel.addEventListener('change', () => {

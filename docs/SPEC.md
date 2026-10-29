@@ -1,6 +1,6 @@
 # madcompany: Spec
 
-**Status:** v0.6, 2026-09-25. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
+**Status:** v0.7, 2026-10-29. v0 is built; see [§17](#17-build-v0) for what's in it and what's next.
 **Name:** madcompany (earlier: "BMAD Company", then "Storyfront"; see [OSS-1](#oss-1)).
 **How to read IDs:** every ID in this file is a link. Click it to jump to its definition. New IDs are added at the end of their section; existing IDs are never renumbered.
 
@@ -12,7 +12,7 @@
 - The MCP servers and plugins you've added to Claude Code are the team's tools too, used by the right roles and kept safe by the same hook ([§22](#22-mcp-servers-and-plugins)).
 - You're involved in three places: UI/UX sessions, escalations the team can't resolve, and the end-of-epic demo.
 - Everything the team does is visible in **HQ**, a local app combining Teams-style chat, a Jira-style board, a decisions log and a dashboard.
-- Every reference (requirement, ticket, decision, file) is a clickable link.
+- Every reference (requirement, ticket, decision, file) is a clickable link, and a project index maps them like a language server maps code: everything linked to FR12 is one lookup, and every ticket, decision, question and message traces back to a requirement ([§23](#23-project-index-and-traceability)).
 - The team runs inside your own Claude Code session, on your machine, during a workday you start and end.
 - Open source, installable as a BMad module or on its own.
 
@@ -340,6 +340,8 @@ In an app project:
   ids.json                  # reference registry            REF-2
   log/events.jsonl          # everything, append-only       HQ-8
   log/*.md, log/chat/       # readable copies               HQ-8
+  log/requirements.md       # requirements added or amended  IDX-6
+  log/notes.md              # members' notes by ID          IDX-8
   human-help.md             # what only you can do          HUM-1, INT-2
   releases/r<n>.md          # release notes                 SHIP-5
   bin/hook.mjs              # safety hook                   SEC-6, SEC-7, DAY-3
@@ -352,7 +354,7 @@ docs/design/<area>/         # design packs                  TEAM-7
 
 In this repo: `src/hq/` (event store, rules, MCP tools, server), `src/roles.js` (role catalogue and templates), `src/auth.js` (sign-in links), `ui/` (HQ web app and feedback widget), `src/refs/` and `src/bmad/` (references and BMad bridge), `src/hook.js`, `skills/`, `templates/`, `examples/tiny-tasks/`, `test/`.
 
-**In v0:** FLOW-1–5, FLOW-8 (as `/mc-scan`), MODE-1–4, SHIP-1–6, HUM-1–6, TOOL-1–7, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
+**In v0:** FLOW-1–5, FLOW-8 (as `/mc-scan`), MODE-1–4, SHIP-1–6, HUM-1–6, TOOL-1–7, IDX-1–10, TEAM-1–13, TKT-1–6, HQ-1–17, REF-1–6, ESC-1–5, VIS-1–3, VIS-5–6, INT-1–2, DAY-1–5, QA-1–3, SEC-1–9, ENV-1–4, MRG-1–4, CHG-1–4, REL-1–5, OSS-1–6, OSS-8–9.
 
 **Not yet:** a deploy command ([FLOW-6](#flow-6), [INT-3](#int-3); today `ship` hands you a deploy checklist in Human help), importing in-progress BMad sprints ([FLOW-7](#flow-7)), screenshot comparison ([VIS-4](#vis-4)), the Codex adapter ([OSS-7](#oss-7)), and the public sample app with numbers ([OSS-10](#oss-10)), and the roadmap in [§19](#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 
@@ -362,7 +364,9 @@ Two v0 gates are honour-based: agents report their own check results (the merge 
 
 ## 18. Known limits
 
-- An agent's memory is files it re-reads at startup, not real recall. How well it remembers depends on compaction ([TEAM-4](#team-4)).
+- An agent's memory is files it re-reads at startup, not real recall. How well it remembers depends on compaction ([TEAM-4](#team-4)). Notes about a story or requirement ([IDX-8](#idx-8)) don't depend on it: they come back with the ticket.
+- The project index ([§23](#23-project-index-and-traceability)) links only what carries an ID. Discussion that names no ticket, requirement or thread is found by search, not by the index; strict traceability keeps that rare for agents, but people talk freely.
+- Whether a ticket contradicts a requirement is judged by the agent reading its `context`; the index only guarantees the right requirements, amendments and decisions are in front of it ([IDX-4](#idx-4)).
 - Your Claude Code session has to stay open while the team works. If it closes, `/mc-start` picks up from HQ.
 - Diagrams in HQ's file viewer load Mermaid from a CDN; offline, the diagram source is shown instead.
 - Parallel work still produces merge conflicts, which the lead resolves ([MRG-1](#mrg-1)).
@@ -436,3 +440,19 @@ Agents are Claude Code subagents, so they inherit the session's MCP servers (pro
 | <a id="tool-6"></a>TOOL-6 | Every MCP and skill call is logged with its time, agent and the policy's decision, never its inputs. HQ → Tools shows usage and blocked calls per server. |
 | <a id="tool-7"></a>TOOL-7 | Checked with a real headless Claude Code run: a read-only MCP tool ran, a delete tool was blocked with the Human help message, and without the hook the read-only tool was denied. |
 
+## 23. Project index and traceability
+
+A language server maps a codebase so "where is this defined, and what uses it?" is a lookup. The project index does the same for the planning and management side: requirements, stories, epics, releases, tickets, change requests, decisions, questions, facts, notes, design docs, meetings and chat. Agents look things up instead of reading every file, and everything they produce traces back to a requirement.
+
+| ID | Requirement |
+|---|---|
+| <a id="idx-1"></a>IDX-1 | **The index.** HQ builds it from its event log and the anchored planning docs, with no model involved: every ID is an item, linked by type: *implements* (ticket → requirement or story), *part of* (story → epic, ticket → release or epic), *depends on*, *blocked by*, *amends* and *extends* (change request → requirement), *defines* (change → a requirement it added), *about* (decision or question → ticket), *discussed in* (message → ticket thread), *answers* (fact → question), *refers to* (any ID or design doc mentioned in text). A "Depends on:" line makes a dependency. Docs are re-scanned when they change. |
+| <a id="idx-2"></a>IDX-2 | **Look up, don't read.** `mc_ref <ID>` returns everything linked to an ID, grouped: where it's defined, what it's part of, tickets, changes, decisions, questions, facts, notes, designs, meetings and discussion. For a requirement it includes what was decided, asked and said on the tickets behind it. `mc_section <ID>` returns only its definition: the PRD list item, the story section, the table row with its header. Also `npx madcompany ref <ID>`, and HQ's ID page. |
+| <a id="idx-3"></a>IDX-3 | **Traceability.** An item traces to the requirements (FR, NFR, UXR, AR, story or an epic defined in the epics doc) it reaches by those links. A plain planning file passes nothing on: linking to the whole PRD says nothing about which requirement. |
+| <a id="idx-4"></a>IDX-4 | **Starting a ticket.** `mc_claim` returns the ticket's requirements as they stand now (amended wording first), with their decisions, open questions, facts and notes, the other tickets on them, and any problem the index sees. Facts known to concern only other requirements stay out. An agent that finds a contradiction asks the lead with both sides linked ([ESC-1](#esc-1)). |
+| <a id="idx-5"></a>IDX-5 | **Enforced.** With `traceability: strict` (the default for new projects; `warn` for projects from before it, `off` to skip): a ticket needs refs that trace to a requirement, or is a `chore`; decisions, questions and escalations must name their ticket or requirements; agents' messages outside a ticket thread must mention a ticket or requirement (the lead and people talk freely); unknown IDs are refused. Each refusal says how to fix it. `warn` returns the same text as a warning. Minutes and design docs are never refused, only warned about. |
+| <a id="idx-6"></a>IDX-6 | **Change requests map to what they change.** A change request (or feedback ticket) names the requirements it *amends* (changes what they say) or *extends* (builds on), when raised or later with `mc_map_change` by the lead, the PM or a person. Nobody can start it before that. Mapping returns and posts the impact ([CHG-2](#chg-2)): tickets, designs, stories and open questions on what it amends. `mc_requirement` records the new wording of an amended requirement, or adds a requirement (next FR/NFR/UXR number) that extends earlier ones, in `.madcompany/log/requirements.md`; the PRD is never edited. In a project with no requirements yet, a change maps by defining the first one. |
+| <a id="idx-7"></a>IDX-7 | **Diagnostics.** The index reports, to the lead's briefing, `mc_trace`, HQ → Trace and `npx madcompany trace`: unmapped change requests; tickets done before a change amended their requirement, or in progress when it did (cleared by reopening, or by a decision that refs both); references to IDs that don't exist; done or in-review tickets whose dependency was reopened; reviewed tickets with an open question; untraced tickets, decisions and open questions. `trace --strict` exits non-zero for CI. |
+| <a id="idx-8"></a>IDX-8 | **Notes.** `mc_note` records what a member learned about a story, requirement or ticket (scope `story` or `project`). Notes show under those IDs, in `mc_ref` and in the next agent's `context`, and in `.madcompany/log/notes.md`. |
+| <a id="idx-9"></a>IDX-9 | **HQ → Trace.** Coverage (requirements with tickets and done; share of tickets, decisions, questions and messages that trace), what to fix, and every requirement with its state, tickets and changes, amended wording first. Each ID opens its page: definition, amendments, everything linked. Owners and members can add a requirement there, and raise or map a change request from the Inbox or the ticket. |
+| <a id="idx-10"></a>IDX-10 | **Planning keeps it whole.** `/mc-plan-release` defines requirements with `mc_requirement` when the planning docs have none, `/mc-scan` records what an existing app already does as requirements, and `/mc-minutes` passes the IDs discussed. |

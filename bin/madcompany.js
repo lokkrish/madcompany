@@ -34,6 +34,9 @@ Work
   anchor <files…>         Add stable anchors to requirement/epic/story IDs
   refs check|fix [files…] Find (or fix) bare references like FR12 that should be links
   ids                     Rebuild .madcompany/ids.json
+  ref <ID>                Everything linked to an ID: tickets, changes, decisions, questions, discussion
+  trace [--strict]        How much work and discussion maps to requirements, and what to fix
+                          (--strict exits 1 when something needs fixing, for CI)
 
 Docs: https://github.com/lokkrish/madcompany/blob/main/docs/USAGE.md`;
 
@@ -48,7 +51,7 @@ async function main() {
     args: rest,
     allowPositionals: true,
     strict: false,
-    options: { mode: { type: 'string' }, port: { type: 'string' }, epics: { type: 'string' }, prd: { type: 'string' }, 'no-skills': { type: 'boolean' }, json: { type: 'boolean' }, template: { type: 'string' }, force: { type: 'boolean' }, share: { type: 'boolean' }, bind: { type: 'string' }, name: { type: 'string' }, role: { type: 'string' }, host: { type: 'string' } },
+    options: { strict: { type: 'boolean' }, mode: { type: 'string' }, port: { type: 'string' }, epics: { type: 'string' }, prd: { type: 'string' }, 'no-skills': { type: 'boolean' }, json: { type: 'boolean' }, template: { type: 'string' }, force: { type: 'boolean' }, share: { type: 'boolean' }, bind: { type: 'string' }, name: { type: 'string' }, role: { type: 'string' }, host: { type: 'string' } },
   });
 
   switch (cmd) {
@@ -273,6 +276,42 @@ async function main() {
         process.exitCode = 1;
       } else if (mode === 'fix') console.log(`Linked ${total} reference(s).`);
       else console.log('All references are links.');
+      return;
+    }
+    case 'ref': {
+      if (!args.length) throw new McError('Usage: madcompany ref <ID>, e.g. madcompany ref FR12');
+      const { connect } = await import('../src/client.js');
+      const c = await connect(paths);
+      try {
+        const card = await c.call('ref', 'cli', args.join(' '));
+        if (opts.json) return console.log(JSON.stringify(card, null, 2));
+        console.log(`${card.id} · ${card.kind}${card.status ? ` · ${card.status}` : ''}\n${card.title}${card.text ? `\n${card.text}` : ''}${card.amended_by ? ` (amended by ${card.amended_by})` : ''}${card.defined ? `\nDefined in ${card.defined}` : ''}`);
+        if (card.traces_to) console.log(`Traces to: ${card.traces_to.map((x) => x.id).join(', ') || 'no requirement'}`);
+        for (const [name, list] of Object.entries(card)) {
+          if (!Array.isArray(list) || !list.length || ['traces_to', 'diagnostics'].includes(name)) continue;
+          console.log(`\n${name}:`);
+          for (const x of list) console.log(`  ${x.id}${x.title ? `  ${x.title}` : ''}${x.status ? ` (${x.status})` : ''}${x.via ? `  via ${x.via}` : ''}`);
+        }
+        if (card.discussion) console.log(`\ndiscussion: ${card.discussion.messages} message(s) in ${Object.keys(card.discussion.channels).join(', ')}`);
+        if (card.diagnostics) console.log(`\nTo fix:\n${card.diagnostics.map((d) => `  ${d}`).join('\n')}`);
+      } finally {
+        await c.close();
+      }
+      return;
+    }
+    case 'trace': {
+      const { connect } = await import('../src/client.js');
+      const c = await connect(paths);
+      const t = await c.call('traceView', 'cli');
+      await c.close();
+      if (opts.json) return console.log(JSON.stringify(t, null, 2));
+      const pct = (x) => (x.total ? `${Math.round((100 * x.traced) / x.total)}%` : 'n/a');
+      const cv = t.coverage;
+      console.log(`Traceability (${t.mode}): ${cv.requirements.with_tickets}/${cv.requirements.total} requirements have tickets (${cv.requirements.done} done) · tickets ${pct(cv.tickets)} · decisions ${pct(cv.decisions)} · questions ${pct(cv.questions)} · discussion ${pct(cv.discussion)}`);
+      for (const r of t.requirements) console.log(`  ${r.id.padEnd(10)} ${r.state.padEnd(8)} ${r.tickets.map((x) => x.id).join(' ') || '-'}${r.changes.length ? `  [${r.changes.map((x) => `${x.how} by ${x.id}`).join(', ')}]` : ''}`);
+      if (t.diagnostics.length) console.log(`\nTo fix (${t.diagnostics.length}):\n${t.diagnostics.map((d) => `  ${d}`).join('\n')}`);
+      else console.log('\nNothing to fix.');
+      if (opts.strict && t.diagnostics.length) process.exitCode = 1;
       return;
     }
     case 'ids': {

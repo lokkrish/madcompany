@@ -75,6 +75,7 @@ textarea { width: 100%; resize: vertical; min-height: 44px; }
 .badge { background: var(--red); color: #fff; border-radius: 999px; font-size: 11px; padding: 0 7px; font-weight: 700; }
 .badge.amber { background: var(--amber); }
 .badge.soft { background: var(--purple); }
+.badge.muted { background: var(--muted); }
 main { overflow: auto; padding: 20px 24px 40px; }
 main:focus { outline: none; }
 
@@ -234,6 +235,10 @@ mark { background: var(--amber-soft); color: inherit; border-radius: 3px; paddin
   .lib-rail { position: static; }
   .columns { grid-template-columns: repeat(5, 240px); overflow-x: auto; }
   main { padding: 16px; }
+  table.trace-rows, table.trace-rows tbody, table.trace-rows tr, table.trace-rows td { display: block; }
+  table.trace-rows tr { padding: 8px 0; border-top: 1px solid var(--line); }
+  table.trace-rows tr:first-child { border-top: 0; }
+  table.trace-rows td { border-top: 0; padding: 2px 0; }
 }
 
 /* Human help */

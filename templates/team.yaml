@@ -19,6 +19,12 @@ max_parallel: 3       # agents working at the same time (your Claude plan's limi
 mode: ui-mvp
 main_branch: main     # approved releases are merged here by "npx madcompany ship"
 
+# Every ticket, decision, question and agent message traces to a requirement
+# (FR, NFR, UXR, story or epic), and a change request names the requirements it
+# amends or extends before anyone starts it. HQ → Trace shows the map.
+#   strict  enforced (agents get an error and fix it)   warn  only warns   off
+traceability: strict
+
 # Your deploy steps. After a release ships, they become a Human help item for you.
 deploy:
   # - Push main; Vercel deploys the web app

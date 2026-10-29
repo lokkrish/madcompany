@@ -57,13 +57,14 @@ Pick one per project. Four of them deliver **release by release**: something you
 - Reviews every ticket (never by its author) and runs the checks
 - Merges through a queue that re-runs the checks, and reverts anything that breaks
 - Logs every decision it makes without you
+- Traces every ticket, decision and message to a requirement, and maps each change request to what it amends: [Traceability](traceability.html)
 
 </div>
 </div>
 
 ## HQ
 
-One local app for everything: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Team, Tools, Preview**, plus search.
+One local app for everything: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Trace, Team, Tools, Preview**, plus search.
 
 <div class="gallery">
 <figure><a href="img/hq-releases.png"><img src="img/hq-releases.png" alt="HQ Releases: R2 building, R1 waiting for your review with Approve and Request changes"></a><figcaption><b>Releases.</b> Each release's goal and progress; approve it or ask for changes.</figcaption></figure>
