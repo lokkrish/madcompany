@@ -14,13 +14,18 @@ import { pathToFileURL } from 'node:url';
 
 const ASK = 'Only the human can do this. If it is really needed, file it with mc_human_help (exact steps, .env key names), keep going on a mock, and park the ticket on the HELP ID (mc_block) only if you are stuck.';
 
+// `git <sub>`, also behind global options: `git -C <dir> push`, `git -c k=v push`, `git --no-pager push`…
+const ARG = String.raw`(?:"[^"]*"|'[^']*'|\S+)`;
+const GIT_OPTS = String.raw`(?:\s+(?:-[Cc]\s+${ARG}|--(?:git-dir|work-tree|namespace|config-env|attr-source)\s+${ARG}|--[\w-]+(?:=${ARG})?|-[pP]))*`;
+const git = (sub) => new RegExp(String.raw`\bgit${GIT_OPTS}\s+${sub.source}`);
+
 const RULES = [
-  [/\bgit\s+push\b[^\n;&|]*(\s(-f|--force|--force-with-lease|--mirror|--delete)\b|\s\+\S)/, 'Force-pushing or deleting remote branches rewrites shared history.'],
-  [/\bgit\s+push\b/, 'Pushing to a remote is done by the human.', (p) => !p.allowPush],
-  [/\bgit\s+(filter-branch|filter-repo)\b/, 'Rewriting git history.'],
-  [/\bgit\s+rebase\b[^\n;&|]*\b(main|master|epic\/\S+)\b/, 'Rebasing a shared branch rewrites history.'],
-  [/\bgit\s+branch\s+-D\s+(main|master|epic\/)/, 'Deleting the main branch or an epic branch.'],
-  [/\bgit\s+reset\s+--hard\s+(origin\/)?(main|master|epic\/)/, 'Resetting a shared branch.'],
+  [git(/push\b[^\n;&|]*(\s(-f|--force|--force-with-lease|--mirror|--delete)\b|\s\+\S)/), 'Force-pushing or deleting remote branches rewrites shared history.'],
+  [git(/push\b/), 'Pushing to a remote is done by the human.', (p) => !p.allowPush],
+  [git(/(filter-branch|filter-repo)\b/), 'Rewriting git history.'],
+  [git(/rebase\b[^\n;&|]*\b(main|master|epic\/\S+)\b/), 'Rebasing a shared branch rewrites history.'],
+  [git(/branch\s+-D\s+(main|master|epic\/)/), 'Deleting the main branch or an epic branch.'],
+  [git(/reset\s+--hard\s+(origin\/)?(main|master|epic\/)/), 'Resetting a shared branch.'],
   [/\bvercel\b(?!\s+(dev|build|env\s+pull|link|whoami|login|ls|inspect|--version|-v|help)\b)/, 'Deploying (vercel).'],
   [/\b(netlify\s+deploy|fly(ctl)?\s+deploy|railway\s+up|eas\s+(submit|update)|serverless\s+deploy|sls\s+deploy|cdk\s+deploy|firebase\s+deploy|terraform\s+(apply|destroy)|pulumi\s+(up|destroy)|kubectl\s+(apply|delete|create|replace)|helm\s+(install|upgrade|uninstall))\b/, 'Deploying or changing infrastructure.'],
   [/\baz\s+[^\n;&|]*\b(create|delete|deploy|up|update|set|purge|restart)\b/, 'Changing Azure resources.'],
@@ -29,7 +34,7 @@ const RULES = [
   [/\b(npm|pnpm|yarn)\s+publish\b|\bdocker\s+push\b/, 'Publishing a package or image.'],
   [/\b(npm|pnpm)\s+(i|install|add)\b[^\n;&|]*\s(-g|--global)\b|\byarn\s+global\s+add\b|\bbrew\s+install\b|\bsudo\b|\bapt(-get)?\s+install\b|\bpipx?\s+install\b[^\n;&|]*--user\b/, 'Installing software outside the project.'],
   [/\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(sh|bash|zsh|node|python3?)\b/, 'Running a script straight from the internet.'],
-  [/(^|[\s;&|(])(cat|less|more|head|tail|bat|source|\.|grep|sed|awk|cp|mv)\s[^\n;&|]*?(?<=[\s/])\.env(\.local|\.production|\.prod|\.[\w-]+\.local)?(?=$|[\s;&|)])/, 'Reading or copying secrets from .env files.'],
+  [/(^|[\s;&|(])(cat|less|more|head|tail|bat|source|\.|grep|sed|awk|sort|uniq|cp|mv)\s[^\n;&|]*?(?<=[\s/])\.env(\.local|\.production|\.prod|\.[\w-]+\.local)?(?=$|[\s;&|)])/, 'Reading or copying secrets from .env files.'],
   [/\b(gh\s+secret|vercel\s+env\s+(add|rm)|az\s+keyvault\s+secret|aws\s+secretsmanager|aws\s+ssm\s+put-parameter)\b/, 'Changing secrets.'],
   [/\b(stripe|twilio|sendgrid)\b[^\n;&|]*\b(live|--live)\b/, 'Using live payment or messaging credentials.'],
 ];

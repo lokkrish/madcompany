@@ -213,7 +213,7 @@ Send each link privately. Opening it signs that person in; the sidebar shows who
 
 ## Troubleshooting
 
-- **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then check `.claude/settings.json` → `permissions.allow`, and add your stack's commands.
+- **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then re-run `npx madcompany init`: it merges the current allow list into `.claude/settings.json` and keeps your own entries, so projects set up with an older version get new entries such as `head`, `tail`, `grep`, `wc`, `sed -n`, `git ls-tree`, `git show-ref` and `git -C <dir>`. Every part of a piped or `;`-joined command must be allowed (in `git branch -a | head -30`, a missing `head` blocks the whole command), so if a denial names a command that is allowed, look for the other parts. Add your stack's own commands to `permissions.allow`. The safety hook still blocks push, deploy and secrets, also behind `git -C <dir>`.
 - **Claude Code doesn't list the `madcompany` tools:** is HQ running? Run `/mcp` in Claude Code to check the server.
 - **Port 4317 is taken:** `npx madcompany hq --port 4400` and `npx madcompany init --port 4400` (that updates `.mcp.json`).
 - **A "madcompany policy" message blocked something:** that action needs you. The agent should have filed it in Human help; do it yourself, or set the matching option (e.g. `allow_push: true`).

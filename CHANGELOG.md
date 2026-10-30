@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Background agents can run the read-only commands they pipe into: `init` now allows `head`, `tail`, `grep`, `wc`, `sed -n`, `sort`, `uniq`, `echo`, `pwd`, `git ls-tree`, `git ls-files`, `git show-ref`, `git rev-list`, `git merge-base` and `git -C <dir>`. Before, a command like `git branch -a | head -30` or `npm test 2>&1 | tail -30` was denied as a whole, and agents filed Human help items for git and npm even though both were allowed. `init` merges into existing settings, so re-run `npx madcompany init` to upgrade a project.
+- Fix: the safety hook now sees git's global options, so `git -C <dir> push`, `git -c k=v push`, `git --no-pager push` and `git --git-dir … push` are blocked like `git push` (also for force-push, rebase and reset on shared branches). It also treats `sort` and `uniq` on `.env` files as reading secrets.
+
 ## 0.1.0 (2026-09-25)
 
 First version.

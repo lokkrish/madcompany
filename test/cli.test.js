@@ -36,6 +36,11 @@ test('init merges into existing settings and never clobbers them', () => {
   const st = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'settings.json'), 'utf8'));
   assert.equal(st.model, 'opus');
   assert.ok(st.permissions.allow.includes('Bash(make *)') && st.permissions.allow.includes('mcp__madcompany'));
+  // read-only commands agents pipe into, so `git ls-tree … | grep x; npm test 2>&1 | tail -30` runs unattended
+  for (const rule of ['Bash(head *)', 'Bash(tail *)', 'Bash(grep *)', 'Bash(wc *)', 'Bash(sed -n *)', 'Bash(git ls-tree*)', 'Bash(git show-ref*)', 'Bash(git -C *)']) {
+    assert.ok(st.permissions.allow.includes(rule), `allows ${rule}`);
+  }
+  assert.equal(st.permissions.allow.length, new Set(st.permissions.allow).size, 'no duplicates after re-running init');
   assert.equal(st.hooks.PreToolUse.length, 1);
   assert.equal(st.hooks.PostToolUse.length, 1);
   assert.equal(st.hooks.PostToolUse[0].matcher, 'Artifact');

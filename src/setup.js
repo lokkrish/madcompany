@@ -100,7 +100,9 @@ export function init(paths, { skills = true, port = 4317, mode = null, log = con
 }
 
 // What background agents may do without asking (they can't answer prompts).
-// The hook still blocks the deny list (push, deploy, secrets…) on top of this.
+// The hook still blocks the deny list (push, deploy, secrets…) on top of this,
+// including behind `git -C <dir>`. Every part of a piped or `;`-joined command
+// must be allowed, so the read-only tools agents pipe into are listed too.
 export const DEFAULT_ALLOW = [
   'mcp__madcompany',
   'Read',
@@ -120,9 +122,15 @@ export const DEFAULT_ALLOW = [
   'Bash(git stash*)',
   'Bash(git merge*)',
   'Bash(git rev-parse*)',
+  'Bash(git rev-list*)',
+  'Bash(git merge-base*)',
+  'Bash(git ls-tree*)',
+  'Bash(git ls-files*)',
+  'Bash(git show-ref*)',
   'Bash(git rm *)',
   'Bash(git mv *)',
   'Bash(git worktree list*)',
+  'Bash(git -C *)',
   'Bash(test *)',
   'Bash(npm *)',
   'Bash(npx *)',
@@ -131,6 +139,15 @@ export const DEFAULT_ALLOW = [
   'Bash(node *)',
   'Bash(ls*)',
   'Bash(cat *)',
+  'Bash(head *)',
+  'Bash(tail *)',
+  'Bash(grep *)',
+  'Bash(wc *)',
+  'Bash(sed -n *)',
+  'Bash(sort *)',
+  'Bash(uniq *)',
+  'Bash(echo *)',
+  'Bash(pwd)',
   'Bash(mkdir *)',
   'Bash(psql *)',
   'Bash(createdb *)',
