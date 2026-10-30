@@ -191,8 +191,9 @@ function dashboard() {
         .map((e) => `<a class="stack" href="#/releases/${esc(e.id)}" style="color:inherit;text-decoration:none"><div class="row"><b>${esc(e.id === e.title ? e.title : `${e.id} ${e.title}`)}</b>${e.status ? unitPill(e.status) : ''}<span class="grow"></span><span class="sub">${e.done}/${e.total}</span></div>${bar(e.done, e.total)}</a>`)
         .join('')
     : `<p class="empty">No ${unitWord(true).toLowerCase()} yet. In Claude Code: <code>${byRelease() ? '/mc-plan-release' : '/mc-plan-epic'}</code></p>`;
-  const waiting = d.needsYou.length + d.help.open + d.inReview.length;
+  const waiting = d.needsYou.length + d.help.open + d.inReview.length + (d.approve?.length ?? 0);
   const needsLines = [
+    d.approve?.length && `<a href="#/inbox">${d.approve.length} change${d.approve.length > 1 ? 's' : ''} the team raised</a> wait${d.approve.length > 1 ? '' : 's'} for your OK`,
     d.inReview.length && `<a href="#/releases/${esc(d.inReview[0].id)}">${d.inReview.map((u) => esc(u.id)).join(', ')} ready for your review</a>`,
     d.needsYou.length && `<a href="#/inbox">${d.needsYou.length} question${d.needsYou.length > 1 ? 's' : ''}</a>: ${esc(d.needsYou[0].question)}`,
     d.help.open && `<a href="#/help">${d.help.open} in Human help</a>${d.help.blocking ? `, ${d.help.blocking} blocking work` : ''}`,
@@ -389,6 +390,12 @@ function inbox(r) {
   return `
   <div class="top"><h1 class="grow">Inbox</h1></div>
   <div class="stack">${openHtml}</div>
+  ${(S.dashboard.approve ?? []).length ? `<div class="stack" style="margin-top:14px">${S.dashboard.approve.map((c) => `<div class="card q stack" id="x-${esc(c.id)}">
+      <div class="row"><b>${esc(c.id)}</b><span class="sub">a change ${esc(c.by ?? 'the team')} raised · waits for your OK</span><span class="grow"></span><a href="${refHref(c.id)}">impact</a></div>
+      <div class="prose">${linkify(c.body)}</div>
+      <div class="sub">${c.amends.length ? `Amends ${c.amends.map((x) => refLink(x)).join(', ')}` : ''}${c.amends.length && c.extends.length ? ' · ' : ''}${c.extends.length ? `Extends ${c.extends.map((x) => refLink(x)).join(', ')}` : ''}</div>
+      <div class="opts" ${can('owner') ? '' : 'hidden'}><button class="rec" data-approve="${esc(c.id)}">Approve</button><button data-reject="${esc(c.id)}">Withdraw it</button></div>
+    </div>`).join('')}</div>` : ''}
   <div class="card" style="margin-top:14px"><h3>Request a change</h3>
     <form class="stack" data-form="change" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead maps it to the requirements it changes and posts an impact check." aria-label="Change request"></textarea>
       <div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends (optional), e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends (optional), e.g. Epic 2" style="flex:1" aria-label="Extends"></div>${reqDatalist()}
@@ -497,7 +504,7 @@ function refPage(r) {
       const item = (x) =>
         x.text
           ? `<div class="qitem"><b>${esc(nameOf(x.by))}</b> <span class="sub">in <a href="#/chat/${encodeURIComponent(x.in)}">${esc(channelLabel(x.in))}</a></span>${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}<div>${linkify(x.text)}</div></div>`
-          : `<div class="qitem">${refLink(x.id)} ${esc(x.title ?? '')} ${statusPill(x.status)}${x.kind ? ` <span class="tag">${esc(x.kind)}</span>` : ''}${x.by ? ` <span class="sub">· ${esc(nameOf(x.by))}</span>` : ''}${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}${x.superseded_by ? ` <span class="tag">superseded by ${esc(x.superseded_by)}</span>` : ''}${x.before_change ? ` <span class="tag warn">before ${esc(x.before_change)}</span>` : ''}</div>`;
+          : `<div class="qitem">${refLink(x.id)} ${esc(x.title ?? '')} ${statusPill(x.status)}${x.kind ? ` <span class="tag">${esc(x.kind)}</span>` : ''}${x.by ? ` <span class="sub">· ${esc(nameOf(x.by))}</span>` : ''}${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}${x.superseded_by ? ` <span class="tag">superseded by ${esc(x.superseded_by)}</span>` : ''}${x.before_change ? ` <span class="tag warn">before ${esc(x.before_change)}</span>` : ''}${x.similarity ? ` <span class="sub">· ${Math.round(x.similarity * 100)}% similar wording</span>` : ''}</div>`;
       const skip = new Set(['traces_to', 'diagnostics']);
       const groups = Object.entries(c).filter(([k, v]) => Array.isArray(v) && !skip.has(k) && v.length);
       const native = nativeHref(c);
@@ -510,6 +517,7 @@ function refPage(r) {
         ${c.text ? `<div class="prose" style="font-size:15px">${linkify(c.text)}</div>` : ''}
         ${c.amended_by ? `<div><span class="tag warn">amended by ${esc(c.amended_by)}</span> <span class="sub">The original wording is in its definition.</span></div>` : ''}
         ${c.proposed ? `<div class="callout"><b>Proposed by ${refLink(c.proposed.change)}</b> (${esc(STATUS_LABEL[c.proposed.change_status] ?? c.proposed.change_status)}): ${linkify(c.proposed.text)}<div class="sub">It becomes the requirement when ${esc(c.proposed.change)} is done; it's dropped if ${esc(c.proposed.change)} is withdrawn.</div></div>` : ''}
+        ${c.checked ? `<div class="sub">Checked for conflicts: <b>${esc(c.checked.verdict)}</b> by ${esc(nameOf(c.checked.by))}, ${clock(c.checked.ts)}${c.checked.note ? ` · ${linkify(c.checked.note)}` : ''}</div>` : ''}
         ${c.traces_to ? `<div><span class="sub">Traces to</span> ${c.traces_to.map((x) => refLink(x.id)).join(', ') || '<span class="tag warn">no requirement</span>'}</div>` : ''}
         <div class="row" style="flex-wrap:wrap">${native ? `<a href="${esc(native)}">Open ${c.defined ? esc(c.defined) : 'it'}</a>` : ''}<button data-section="${esc(c.id)}">Show the definition</button></div>
         <div id="section-text"></div>
@@ -968,6 +976,13 @@ function wire(r) {
       f.reset();
     });
   });
+  $main.querySelectorAll('[data-approve]').forEach((b) => b.addEventListener('click', () => act(() => api('/api/change/approve', { id: b.dataset.approve }))));
+  $main.querySelectorAll('[data-reject]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const reason = prompt(`Why withdraw ${b.dataset.reject}?`);
+      if (reason?.trim()) act(() => api('/api/withdraw', { id: b.dataset.reject, reason: reason.trim() }));
+    }),
+  );
   $main.querySelector('form[data-form="withdraw"]')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;

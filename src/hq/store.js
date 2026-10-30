@@ -26,6 +26,8 @@ export function emptyState() {
     requirements: {},
     amendments: [],
     notes: [],
+    // consistency reviews: which stories, requirements and changes were checked against what's agreed
+    checks: [],
     designs: {},
     envs: {},
     handoffs: {},
@@ -129,6 +131,9 @@ export function applyEvent(s, ev) {
         mappedBy: d.amends?.length || d.extends?.length ? ev.by : null,
         mappedAt: d.amends?.length || d.extends?.length ? ev.ts : null,
         mappedSeq: d.amends?.length || d.extends?.length ? ev.seq : null,
+        // a change the team raised waits for a person's OK ("needed"), then holds who gave it
+        approval: d.approval ?? null,
+        raisedBy: d.raisedBy ?? null,
         status: 'todo',
         blockedBy: [],
         attempts: 0,
@@ -148,6 +153,9 @@ export function applyEvent(s, ev) {
     case 'ticket.map':
       // the first mapping is when the change started to count: "before the change" means before that
       if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: t.mappedBy ?? ev.by, mappedAt: t.mappedAt ?? ev.ts, mappedSeq: t.mappedSeq ?? ev.seq });
+      break;
+    case 'ticket.approve':
+      if (t) t.approval = { by: ev.by, ts: ev.ts };
       break;
     // a change request (or a ticket split from one) that won't be built: closed, and its amendments drop
     case 'ticket.withdraw':
@@ -207,6 +215,7 @@ export function applyEvent(s, ev) {
         recommended: d.recommended ?? null,
         links: d.links ?? [],
         refs: d.refs ?? [],
+        conflict: d.conflict ?? null,
         ticket: d.ticket ?? null,
         status: 'open',
         ts: ev.ts,
@@ -242,6 +251,9 @@ export function applyEvent(s, ev) {
       break;
     case 'requirement.amend':
       s.amendments.push({ ...d, by: ev.by, ts: ev.ts });
+      break;
+    case 'consistency.check':
+      s.checks.push({ ids: d.ids ?? [], verdict: d.verdict, note: d.note ?? '', by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
     case 'note.add':
       s.counters.note = Math.max(s.counters.note ?? 0, num(d.id));
@@ -311,6 +323,7 @@ export function summarize(ev) {
     case 'ticket.create': return `created (${d.kind ?? 'task'})`;
     case 'ticket.update': return `updated ${Object.keys(d.fields ?? {}).join(', ')}`;
     case 'ticket.withdraw': return `withdrawn${d.reason ? `: ${d.reason}` : ''}`;
+    case 'ticket.approve': return 'change approved';
     case 'ticket.map': return `mapped: ${[d.amends?.length ? `amends ${d.amends.join(', ')}` : '', d.extends?.length ? `extends ${d.extends.join(', ')}` : ''].filter(Boolean).join('; ') || 'nothing'}`;
     case 'ticket.assign': return `assigned to ${d.agent}`;
     case 'ticket.claim': return 'started work';
@@ -359,6 +372,10 @@ export function describeEvent(ev) {
     case 'help.cancel': return `cancelled ${d.id}`;
     case 'requirement.add': return `added requirement ${d.id}: ${clip(d.title)}`;
     case 'requirement.amend': return `amended ${d.id}${d.change ? ` (${d.change})` : ''}: ${clip(d.text)}`;
+    case 'consistency.check':
+      s.checks.push({ ids: d.ids ?? [], verdict: d.verdict, note: d.note ?? '', by: ev.by, ts: ev.ts, seq: ev.seq });
+      break;
+    case 'consistency.check': return `checked ${(d.ids ?? []).join(', ')} for conflicts: ${d.verdict}`;
     case 'note.add': return `noted on ${(d.about ?? []).join(', ')}: ${clip(d.text)}`;
     default: return null;
   }

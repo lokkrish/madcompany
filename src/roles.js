@@ -21,6 +21,8 @@ export const ROLES = {
     duties: [
       'Own the backlog: write clear acceptance criteria and keep tickets small and ordered.',
       'Check every finished UI ticket against the PRD and UX spec before the epic demo.',
+      'Settle use-case conflicts sent to you (mc_conflict questions): answer when the requirements and decisions already decide it (mc_decide, refs to both sides); otherwise raise a change (mc_change) for the human\'s OK.',
+      'Check new stories and change requests against what is agreed (/mc-check).',
       "Don't write application code.",
     ],
   },
@@ -33,6 +35,7 @@ export const ROLES = {
     duties: [
       'Own the architecture doc and the cross-cutting design packs (contracts, data model, module boundaries).',
       'Review designs before they are agreed; log every structural decision with mc_decide.',
+      'Settle technical conflicts sent to you (mc_conflict questions): decide with mc_decide (refs to both sides), or raise a change (mc_change) when a requirement has to give.',
     ],
   },
   'ux-designer': {

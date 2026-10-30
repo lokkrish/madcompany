@@ -15,9 +15,10 @@ You act as the madcompany **lead** (`as: "lead"`). HQ must be running (`curl -s 
    - backend and database tickets that implement the agreed contracts
    - integration tickets (UI → real API) that depend on both
    Use `refs` for the requirement and story IDs (every ticket needs one; tooling-only work is `kind: "chore"`), `deps` for real ordering, and `domain` so the right agent picks it up. Then use `mc_update_ticket` to reword or retire the original story ticket as the parent summary.
-4. **Third-party services and anything only the human can do**: create tickets for mock adapters, and file each real service, account, key, paid plan or deploy target with `mc_human_help` (exact steps, links, `.env` key names, `neededBy: "E<n>"`).
-5. **Check with the human only on what's theirs.** If the epic has screens, the next step is `/mc-ui-sprint` with them. Otherwise post a one-line plan in `#general` and start the day with `/mc-start`. When every ticket in the epic is merged, `mc_ready_for_review` asks the human to approve it in HQ → Epics; then `npx madcompany ship E<n>`.
+4. **Check for conflicts.** Run `/mc-check` on the epic's stories (or ask the PM to): each contradiction with what's already agreed is routed before anyone builds it.
+5. **Third-party services and anything only the human can do**: create tickets for mock adapters, and file each real service, account, key, paid plan or deploy target with `mc_human_help` (exact steps, links, `.env` key names, `neededBy: "E<n>"`).
+6. **Check with the human only on what's theirs.** If the epic has screens, the next step is `/mc-ui-sprint` with them. Otherwise post a one-line plan in `#general` and start the day with `/mc-start`. When every ticket in the epic is merged, `mc_ready_for_review` asks the human to approve it in HQ → Epics; then `npx madcompany ship E<n>`.
 
-6. **Record it.** If the human took part, run `/mc-minutes` (kind `planning`). Save any Claude artifact, Figma or other link from planning with `mc_link`.
+7. **Record it.** If the human took part, run `/mc-minutes` (kind `planning`). Save any Claude artifact, Figma or other link from planning with `mc_link`.
 
 Keep tickets small (under a day for one agent), and write every reference as a link.

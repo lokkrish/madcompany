@@ -146,6 +146,7 @@ The agents don't read the whole PRD to find out what a story depends on. HQ keep
 - **Everything traces to a requirement.** With `traceability: strict` (the default for new projects), a ticket needs refs to the requirements it implements (or is a chore), decisions and questions name their ticket or requirements, and an agent's message outside a ticket thread names what it's about. HQ refuses the rest and says how to fix it.
 - **Change requests map to what they change.** Each one names the requirements it **amends** or **extends**, when you raise it or when the lead maps it; nobody starts it before that. Mapping returns the impact: done and in-progress tickets, designs, stories and open questions on what it amends. The new wording goes to `.madcompany/log/requirements.md`; the PRD stays as written.
 - **What to fix, in one place.** HQ → Trace, the lead's morning briefing and `npx madcompany trace` list unmapped changes, work done before a change amended its requirement, unknown IDs, reopened dependencies and untraced work. `trace --strict` fails CI on any of them.
+- **Contradictions are caught even without a shared ID.** Next to every story, requirement and ticket, the index lists what's *possibly related*: close in wording but not linked. Agents raise a contradiction with `mc_conflict`, and it goes to whoever settles it (use-case → product manager, tech → architect). `/mc-check` reviews new stories and changes against what's agreed. A change the team raises to settle one waits for your OK in the Inbox.
 - **Notes stay with the story.** What an agent learns about a story (`mc_note`) shows up for whoever works on it next.
 
 ![HQ Trace: requirements with their tickets and changes, and what to fix](docs/images/hq-trace.png)
@@ -173,6 +174,7 @@ The agents are Claude Code subagents, so the MCP servers and plugins you've adde
 | `/mc-plan-epic` | Spec-driven: import BMad stories, anchor IDs, split into tickets |
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract |
 | `/mc-start` | Start the workday; your session becomes the lead |
+| `/mc-check` | Check new stories and change requests against what's agreed; each contradiction goes to the PM or architect |
 | `/mc-minutes` | Minutes of the current conversation (key points, decisions, actions, links) into HQ |
 | `/mc-end-day`, `/mc-stop` | End the day with handoffs, or stop immediately |
 

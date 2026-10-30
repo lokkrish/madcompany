@@ -57,6 +57,7 @@ export function createNotices(core) {
         break;
       }
       case 'ticket.create':
+        if (d.approval === 'needed') push('change', `${d.raisedBy} raised change ${d.id} (${d.title}); it waits for the human's OK in HQ → Inbox.`, { ticket: d.id });
         if (core.isHuman(ev.by)) {
           const mapped = d.amends?.length || d.extends?.length;
           const map = mapped
@@ -66,6 +67,9 @@ export function createNotices(core) {
               : '';
           push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}.${map}`, { ticket: d.id });
         }
+        break;
+      case 'ticket.approve':
+        push('change', `${nameOf(ev.by)} approved ${d.id}; it can be started (split it into tickets with refs ["${d.id}"] or assign it).`, { ticket: d.id });
         break;
       case 'ticket.map':
         // the lead sees its own mapping in the tool result; tell it when someone else mapped one

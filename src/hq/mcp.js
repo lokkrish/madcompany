@@ -126,6 +126,20 @@ export function buildMcpServer({ core, notices, registry, version }) {
     { as, about: z.array(z.string()).describe('IDs it is about, e.g. ["Story 2.3", "FR12"]'), text: z.string(), scope: z.enum(['story', 'project']).optional().describe('story: detail for this story; project: holds across the project') },
     ({ as, ...f }) => core.note(as, f),
   );
+  tool(
+    'mc_conflict',
+    'Something contradicts what is already agreed (a ticket or story vs a requirement, decision or the human\'s answer). Goes to whoever settles it: use-case conflicts to the product manager, technical ones to the architect, else the lead. Name both sides and recommend a way out; don\'t build either side meanwhile.',
+    {
+      as,
+      about: z.array(z.string()).describe('Both sides, e.g. ["Story 3.2", "FR2"] or ["APP-14", "DEC-3"]'),
+      kind: z.enum(['use-case', 'tech']).describe('use-case: what the product should do; tech: how it is built'),
+      conflict: z.string().describe('What contradicts what, in a sentence or two'),
+      recommendation: z.string().describe('Which side should win, or what should change'),
+      ticket: z.string().optional(),
+      links: list('Supporting links'),
+    },
+    ({ as, ...f }) => core.conflict(as, f),
+  );
   tool('mc_memory', 'Read your identity and your two memories (work, comms).', { as }, ({ as }) => core.memoryRead(as));
   tool(
     'mc_memory_write',
@@ -268,6 +282,18 @@ export function buildMcpServer({ core, notices, registry, version }) {
       source: z.string().optional().describe('Where it comes from, e.g. a link to the brief'),
     },
     ({ as, ...f }) => core.defineRequirement(as, f),
+  );
+  tool(
+    'mc_check',
+    'Lead, PM or architect: record that stories, added requirements or change requests were checked against what is already agreed (mc_ref shows linked and possibly related items). Raise each contradiction with mc_conflict first.',
+    { as, ids: z.array(z.string()).describe('What you checked, e.g. ["Story 2.1", "APP-7"]'), verdict: z.enum(['consistent', 'conflict']), note: z.string().optional(), conflicts: list('Question IDs from mc_conflict') },
+    ({ as, ...f }) => core.check(as, f),
+  );
+  tool(
+    'mc_change',
+    'Lead or PM: raise a change request (e.g. to settle a conflict). Say what it amends or extends. It waits for the human\'s OK in HQ before anyone starts it.',
+    { as, text: z.string().describe('What should change'), amends: list('Requirement / story / epic IDs whose meaning changes'), extends: list('Requirement / story / epic IDs it builds on'), why: z.string().optional(), from: z.string().optional().describe('The conflict question it settles, e.g. Q-4') },
+    ({ as, ...f }) => core.raiseChange(as, f),
   );
   tool('mc_trace', 'Lead: traceability. How much work and discussion maps to requirements, and what to fix (unmapped changes, work done before a change amended it, unknown IDs, reopened dependencies).', { as }, () => core.traceSummary(100));
 
