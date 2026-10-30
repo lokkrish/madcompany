@@ -70,7 +70,7 @@ test('park and resume: checkpoint required, resumes only when the blocker is don
 
   const pkg = core.claim('lena', 'APP-2');
   assert.equal(pkg.resume_from.next, 'wire the API call');
-  assert.equal(core.ticket('APP-2').attempts, 2);
+  assert.equal(core.ticket('APP-2').attempts, 1, 'resuming a parked ticket is not a new attempt');
 });
 
 test('UI tickets need a screenshot before review', () => {

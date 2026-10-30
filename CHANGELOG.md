@@ -14,6 +14,7 @@
 - HQ: a **Trace** page (coverage, what to fix, every requirement with its tickets and changes, add a requirement), a page per ID (`#/ref/<ID>`), "Traces to" and change mapping on ticket pages, Amends/Extends on the change request form, and a traceability line on the dashboard.
 - CLI: `ref <ID>` and `trace [--strict]`.
 - Agent protocol: look IDs up with `mc_ref`/`mc_section`, raise contradictions with the lead, leave `mc_note`s. Reviewing is now step 10. `/mc-plan-release` defines requirements when the planning docs have none; `/mc-scan` records an existing app's capabilities as requirements; `/mc-ui-sprint` maps feedback; `/mc-minutes` passes `refs`.
+- Resuming a parked (blocked) ticket no longer counts as an attempt: waiting on an answer, an approval or Human help isn't a failed try. Fresh starts and restarts after review or a reopen still count.
 - File formats: new events `consistency.check`, `ticket.approve`, `ticket.withdraw`, `ticket.map`, `requirement.add`, `requirement.amend`, `note.add`; `ticket.create` may carry `amends`/`extends`; `question.ask`, `decision.log` and `minutes.add` may carry `refs` (`question.ask` also `conflict`; a team-raised `ticket.create` `approval` and `raisedBy`) (and `decision.log` `supersedes`). New readable files `.madcompany/log/requirements.md` and `.madcompany/log/notes.md`.
 
 ## 0.1.0 (2026-09-25)

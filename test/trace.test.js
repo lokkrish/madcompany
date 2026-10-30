@@ -8,6 +8,7 @@ import { makeCore, tmpProject, TEAM } from './helpers.js';
 import { createHq } from '../src/hq/server.js';
 import { scanDoc, keyOf, mentionKeys } from '../src/hq/graph.js';
 import { hqEntries } from '../src/refs/ids.js';
+import { describeEvent } from '../src/hq/store.js';
 
 const PRD = `# PRD
 
@@ -423,4 +424,13 @@ test('contradictions without a shared ID: possibly related items, routed conflic
   core.check('lead', { ids: ['Story 1.1', 'Story 1.2', chg.id], verdict: 'consistent' });
   assert.equal(core.ref('lead', 'Story 2.1').checked.verdict, 'conflict');
   assert.ok(!core.traceSummary().diagnostics.some((d) => /not checked for conflicts/.test(d)));
+});
+
+test('every new event reads as a line in the activity feed', () => {
+  const ev = (type, data) => describeEvent({ type, by: 'lead', ts: '2026-10-30T10:00:00Z', data });
+  assert.equal(ev('consistency.check', { ids: ['Story 1.1'], verdict: 'consistent' }), 'checked Story 1.1 for conflicts: consistent');
+  assert.equal(ev('requirement.amend', { id: 'FR2', text: 'At most one', change: 'APP-2' }), 'amended FR2 (APP-2): At most one');
+  assert.equal(ev('note.add', { about: ['FR2'], text: 'x' }), 'noted on FR2: x');
+  assert.equal(ev('ticket.approve', { id: 'APP-2' }), 'APP-2: change approved');
+  assert.equal(ev('ticket.withdraw', { id: 'APP-2', reason: 'no' }), 'APP-2: withdrawn: no');
 });
