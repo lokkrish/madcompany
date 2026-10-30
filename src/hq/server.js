@@ -28,7 +28,7 @@ const RAW = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.html', 
 const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
-const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel', 'traceView', 'ref', 'mapChange', 'defineRequirement']);
+const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel', 'traceView', 'ref', 'mapChange', 'defineRequirement', 'withdrawChange']);
 
 export function createHq({ paths, port = 4317, quiet = false, share = false, bind = null }) {
   const config = loadConfig(paths);
@@ -261,6 +261,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text, amends: body.amends, extends: body.extends }, who.id));
       if (p === '/api/map') return need(2) && ok(res, () => core.mapChange(who.id, body.id, { amends: body.amends, extends: body.extends }));
       if (p === '/api/requirement') return need(2) && ok(res, () => core.defineRequirement(who.id, body));
+      if (p === '/api/withdraw') return need(2) && ok(res, () => core.withdrawChange(who.id, body.id, body.reason));
       if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
       if (p === '/api/help') return need(2) && ok(res, () => core.requestHelp(who.id, body));
       if (p === '/api/tools/restaff') return need(3) && ok(res, () => (staff(paths, { log: () => {} }), { ok: true }));

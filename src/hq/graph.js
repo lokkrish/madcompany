@@ -242,20 +242,23 @@ export function createIndex({ store, config, paths }) {
     }
     // requirements defined in HQ (from the brief, MVP scope or a change request)
     for (const r of Object.values(s.requirements ?? {})) {
-      add(keyOf(r.id), { id: r.id, kind: 'requirement', title: r.title, text: r.text, file: '.madcompany/log/requirements.md', ledger: true, by: r.by, ts: r.ts });
+      // one a change request adds is proposed until that change is done, and gone if it is withdrawn
+      const c = r.change ? s.tickets[r.change] : null;
+      const status = c?.withdrawn ? 'withdrawn' : c && c.status !== 'done' ? 'proposed' : undefined;
+      add(keyOf(r.id), { id: r.id, kind: 'requirement', title: r.title, text: r.text, file: '.madcompany/log/requirements.md', ledger: true, by: r.by, ts: r.ts, ...(status ? { status } : {}) });
     }
     // an epic only named on a ticket is a bucket of work, not a requirement; one in the epics doc is both
     for (const e of Object.values(s.epics)) Object.assign(add(keyOf(e.id), { id: e.id, kind: 'epic', title: e.title ?? e.id, hqOnly: true }), { status: e.status });
     for (const r of Object.values(s.releases)) add(keyOf(r.id), { id: r.id, kind: 'release', title: r.title, status: r.status, file: r.notes ?? null });
     for (const t of Object.values(s.tickets)) {
-      add(keyOf(t.id), { id: t.id, kind: 'ticket', sub: t.kind, title: t.title, status: t.status, by: t.assignee, ts: t.created, file: '.madcompany/log/board.md' });
+      add(keyOf(t.id), { id: t.id, kind: 'ticket', sub: t.kind, title: t.title, status: t.withdrawn ? 'withdrawn' : t.status, by: t.assignee, ts: t.created, file: '.madcompany/log/board.md' });
     }
-    for (const d of s.decisions) add(keyOf(d.id), { id: d.id, kind: 'decision', title: d.title, by: d.by, ts: d.ts, file: '.madcompany/log/decisions.md' });
-    for (const q of Object.values(s.questions)) add(keyOf(q.id), { id: q.id, kind: 'question', title: q.question, status: q.status, by: q.from, ts: q.ts, file: '.madcompany/log/questions.md' });
-    for (const f of s.facts) add(keyOf(f.id), { id: f.id, kind: 'fact', title: f.text, by: f.by, ts: f.ts, file: '.madcompany/facts.md' });
+    for (const d of s.decisions) add(keyOf(d.id), { id: d.id, kind: 'decision', title: d.title, by: d.by, ts: d.ts, seq: d.seq ?? 0, file: '.madcompany/log/decisions.md' });
+    for (const q of Object.values(s.questions)) add(keyOf(q.id), { id: q.id, kind: 'question', title: q.question, status: q.status, by: q.from, ts: q.ts, seq: q.seq ?? 0, file: '.madcompany/log/questions.md' });
+    for (const f of s.facts) add(keyOf(f.id), { id: f.id, kind: 'fact', title: f.text, by: f.by, ts: f.ts, seq: f.seq ?? 0, file: '.madcompany/facts.md' });
     for (const h of Object.values(s.help ?? {})) add(keyOf(h.id), { id: h.id, kind: 'help', title: h.title, status: h.status, by: h.by, ts: h.ts, file: '.madcompany/human-help.md' });
     for (const m of s.minutes ?? []) add(keyOf(m.id), { id: m.id, kind: 'minutes', title: m.title, by: m.by, ts: m.ts, file: m.file });
-    for (const n of s.notes ?? []) add(keyOf(n.id), { id: n.id, kind: 'note', title: clip(n.text, 100), by: n.by, ts: n.ts, scope: n.scope, file: '.madcompany/log/notes.md' });
+    for (const n of s.notes ?? []) add(keyOf(n.id), { id: n.id, kind: 'note', title: clip(n.text, 100), by: n.by, ts: n.ts, seq: n.seq ?? 0, scope: n.scope, file: '.madcompany/log/notes.md' });
     for (const m of s.messages) add(keyOf(m.id), { id: m.id, kind: 'message', title: clip(m.text, 140), by: m.by, ts: m.ts, channel: m.channel });
     for (const d of Object.values(s.designs)) {
       const n = add(d.path, { id: d.path, kind: 'design', title: path.posix.basename(d.path), file: d.path });
@@ -370,7 +373,7 @@ export function createIndex({ store, config, paths }) {
   // ---------- queries ----------
   const outOf = (g, k) => g.out.get(k) ?? [];
   const inOf = (g, k) => g.inc.get(k) ?? [];
-  const isReq = (n) => Boolean(n && REQ_KINDS.has(n.kind) && !n.hqOnly);
+  const isReq = (n) => Boolean(n && REQ_KINDS.has(n.kind) && !n.hqOnly && n.status !== 'withdrawn');
 
   /** The requirements (FR, NFR, story, epic…) a node traces back to. */
   function traceKeys(g, start) {
@@ -457,14 +460,56 @@ export function createIndex({ store, config, paths }) {
     return { ...o, ...extra };
   };
 
-  /** The current wording of a requirement: its latest amendment, else its definition. Nothing when that's just its title. */
+  /**
+   * An amendment is proposed until its change request is done (merged, or all
+   * its tickets merged), and dropped if the change is withdrawn. One recorded
+   * without a change holds at once.
+   */
+  function amendmentState(a) {
+    const c = a.change ? store.state.tickets[a.change] : null;
+    if (!c) return 'in effect';
+    if (c.withdrawn) return 'withdrawn';
+    return c.status === 'done' ? 'in effect' : 'proposed';
+  }
+  /** Change requests (mapped, not withdrawn) that amend this requirement. */
+  const amendingChanges = (k) => Object.values(store.state.tickets).filter((c) => c.kind === 'change' && !c.withdrawn && c.mappedSeq && (c.amends ?? []).some((x) => keyOf(x) === k));
+  const supersededBy = (g, key) => inOf(g, key).find((e) => e.type === 'supersedes')?.from ?? null;
+  /** A decision after the change that refs both settles whether an item still holds. */
+  const confirmedBy = (g, itemKey, changeKey, after) => store.state.decisions.some((d) => (d.seq ?? 0) > after && [itemKey, changeKey].every((x) => outOf(g, keyOf(d.id)).some((e) => e.to === x)));
+  /** The change that amended one of these requirements after this decision, fact or note was made (and nobody confirmed it since). */
+  function predates(g, key, reqKeys) {
+    const n = g.nodes.get(key);
+    if (!n?.seq) return null;
+    for (const r of reqKeys) for (const c of amendingChanges(r)) if (n.seq < c.mappedSeq && !confirmedBy(g, key, keyOf(c.id), c.mappedSeq)) return c.id;
+    return null;
+  }
+  /** Marks for a decision, fact or note: replaced by a later decision, or older than a change to what it's about. */
+  function freshness(g, key, reqKeys) {
+    const out = {};
+    const by = g.nodes.get(key).kind === 'decision' ? supersededBy(g, key) : null;
+    if (by) out.superseded_by = g.nodes.get(by).id;
+    const before = predates(g, key, reqKeys);
+    if (before) out.before_change = before;
+    return out;
+  }
+  /** A requirement plus what it covers (a story's requirements), or what an item traces to. */
+  const reqScope = (g, k) => (isReq(g.nodes.get(k)) ? [k, ...outOf(g, k).filter((e) => e.type === 'refs' && g.nodes.get(e.to).kind === 'requirement').map((e) => e.to)] : deepTrace(g, k));
+
+  /** What a requirement says now, and any wording proposed by a change still being built. Text is left out when it's just the title. */
   function currentText(g, n) {
     const t = wording(g, n);
-    return t.text && t.text !== n.title ? t : t.amended_by ? t : {};
+    if (t.text === n.title && !t.amended_by) delete t.text;
+    return t;
   }
   function wording(g, n) {
-    const amend = (store.state.amendments ?? []).filter((a) => keyOf(a.id) === n.key).at(-1);
-    if (amend) return { text: amend.text, amended_by: amend.change };
+    const mine = (store.state.amendments ?? []).filter((a) => keyOf(a.id) === n.key);
+    const now = mine.filter((a) => amendmentState(a) === 'in effect').at(-1);
+    const next = mine.filter((a) => amendmentState(a) === 'proposed').at(-1);
+    const out = now ? { text: now.text, amended_by: now.change } : original(n);
+    if (next) out.proposed = { text: next.text, change: next.change, change_status: store.state.tickets[next.change]?.status };
+    return out;
+  }
+  function original(n) {
     if (n.ledger) return { text: n.text ?? n.title };
     if (n.file && n.start != null && n.form !== 'heading') {
       const lines = sectionLines(n);
@@ -547,6 +592,7 @@ export function createIndex({ store, config, paths }) {
     }
     const order = ['part of', 'contains', 'implements', 'tickets', 'amends', 'amended by', 'extends', 'extended by', 'defines', 'defined by', 'depends on', 'needed by', 'blocked by', 'blocking', 'about', 'answers', 'decisions', 'questions', 'facts', 'notes', 'designs', 'meetings', 'human help', 'refers to', 'referenced by', 'discussed in', 'superseded by', 'supersedes', 'for', 'discussion'];
     const recent = (a, b) => String(g.nodes.get(b[0]).ts ?? '').localeCompare(String(g.nodes.get(a[0]).ts ?? ''));
+    const scope = reqScope(g, k);
     const names = Object.keys(groups).sort((a, b) => order.indexOf(a) - order.indexOf(b));
     const more = {};
     for (const name of names) {
@@ -564,7 +610,8 @@ export function createIndex({ store, config, paths }) {
         continue;
       }
       const cap = only ? 50 : limit;
-      card[name] = entries.slice(0, cap).map(([m, x]) => brief(g, m, x ?? {}));
+      const marks = (m) => (['decision', 'fact', 'note'].includes(g.nodes.get(m).kind) ? freshness(g, m, scope) : {});
+      card[name] = entries.slice(0, cap).map(([m, x]) => brief(g, m, { ...(x ?? {}), ...marks(m) }));
       if (entries.length > cap) more[name] = entries.length - cap;
     }
     if (Object.keys(more).length) card.more = Object.fromEntries(Object.entries(more).map(([name, c]) => [name, `${c} more: mc_ref with only: "${name}"`]));
@@ -606,7 +653,7 @@ export function createIndex({ store, config, paths }) {
     }
     if (isReq(n)) {
       const am = (s.amendments ?? []).filter((a) => keyOf(a.id) === n.key);
-      if (am.length) out.amendments = am.map((a) => ({ change: a.change, by: a.by, date: a.ts.slice(0, 10), text: a.text }));
+      if (am.length) out.amendments = am.map((a) => ({ change: a.change, state: amendmentState(a), by: a.by, date: a.ts.slice(0, 10), text: a.text }));
     }
     return out;
   }
@@ -684,14 +731,15 @@ export function createIndex({ store, config, paths }) {
     const tickets = Object.values(s.tickets);
     // event order, not clock time: two events can share a millisecond
     const lastSeq = (t, type) => t.activity.filter((a) => a.type === type).at(-1)?.seq ?? 0;
-    const confirmed = (tk, ck, after) => s.decisions.some((d) => (d.seq ?? 0) > after && [tk, ck].every((x) => outOf(g, keyOf(d.id)).some((e) => e.to === x)));
+    const confirmed = (item, ck, after) => confirmedBy(g, item, ck, after);
 
     for (const t of tickets) {
       if ((t.kind === 'change' || t.kind === 'feedback') && t.status !== 'done' && !mapping(t, g).mapped) {
         add('unmapped-change', `${t.id} (${t.kind}) isn't mapped to the requirements it amends or extends. The lead maps it with mc_map_change before anyone starts it.`, [t.id]);
       }
     }
-    for (const c of tickets.filter((x) => x.kind === 'change' && x.mappedSeq && x.amends?.length)) {
+    const changes = tickets.filter((x) => x.kind === 'change' && x.mappedSeq && x.amends?.length && !x.withdrawn);
+    for (const c of changes) {
       const ck = keyOf(c.id);
       const own = new Set(inOf(g, ck).filter((e) => e.type === 'implements').map((e) => e.from));
       const amended = new Set(c.amends.map(keyOf));
@@ -705,6 +753,35 @@ export function createIndex({ store, config, paths }) {
           add('done-before-change', `${t.id} was done before ${c.id} amended ${rid}. Reopen it (mc_reopen) or confirm it still holds (mc_decide with refs ["${t.id}", "${c.id}"]).`, [t.id, c.id, rid]);
         } else if (['in_progress', 'in_review', 'blocked'].includes(t.status) && lastSeq(t, 'ticket.claim') < c.mappedSeq && !confirmed(tk, ck, c.mappedSeq)) {
           add('changed-under-work', `${t.id} (${t.status}${t.assignee ? `, ${t.assignee}` : ''}) implements ${rid}, which ${c.id} amended after work started. Tell its owner in ticket:${t.id}, or confirm with mc_decide (refs ["${t.id}", "${c.id}"]).`, [t.id, c.id, rid]);
+        }
+      }
+    }
+    // what was written, decided or answered about a requirement before a change amended it
+    for (const c of changes) {
+      const ck = keyOf(c.id);
+      const amended = c.amends.map(keyOf).filter((k) => g.nodes.has(k));
+      for (const r of amended) {
+        const rid = g.nodes.get(r).id;
+        const stories = inOf(g, r).filter((e) => e.type === 'refs' && g.nodes.get(e.from).kind === 'story' && !amended.includes(e.from)).map((e) => e.from);
+        for (const st of stories) {
+          const reworded = (s.amendments ?? []).some((a) => keyOf(a.id) === st && a.change === c.id);
+          const sid = g.nodes.get(st).id;
+          if (!reworded && !confirmed(st, ck, c.mappedSeq)) {
+            add('stale-story', `${sid} covers ${rid}, which ${c.id} amends, and still says what it said before. Reword it (mc_requirement id "${sid}", change "${c.id}") or confirm it holds (mc_decide refs ["${sid}", "${c.id}"]).`, [sid, c.id, rid]);
+          }
+        }
+        for (const target of [r, ...stories]) {
+          for (const e of inOf(g, target)) {
+            const d = g.nodes.get(e.from);
+            if (d.kind !== 'decision' || !(d.seq < c.mappedSeq) || supersededBy(g, e.from) || confirmed(e.from, ck, c.mappedSeq)) continue;
+            add('stale-decision', `${d.id} was decided on ${g.nodes.get(target).id} before ${c.id} amended ${rid}. Supersede it (mc_decide supersedes "${d.id}") or confirm it holds (mc_decide refs ["${d.id}", "${c.id}"]).`, [d.id, c.id, rid]);
+          }
+        }
+        for (const f of s.facts) {
+          const fk = keyOf(f.id);
+          if ((f.seq ?? 0) < c.mappedSeq && deepTrace(g, fk).includes(r) && !confirmed(fk, ck, c.mappedSeq)) {
+            add('stale-fact', `${f.id} (an answer from ${f.by === 'you' ? 'the human' : f.by}) was given before ${c.id} amended ${rid}: "${clip(f.text, 90)}". Check it still holds and confirm (mc_decide refs ["${f.id}", "${c.id}"]), or ask the human again.`, [f.id, c.id, rid]);
+          }
         }
       }
     }
@@ -775,6 +852,7 @@ export function createIndex({ store, config, paths }) {
           link: linkOf(n),
           parent: parent ? g.nodes.get(parent.to).id : null,
           ledger: Boolean(n.ledger),
+          ...(n.status ? { status: n.status } : {}),
           state,
           tickets: tickets.map((t) => ({ id: t.id, status: t.status })),
           changes,
@@ -793,20 +871,30 @@ export function createIndex({ store, config, paths }) {
     const tk = keyOf(t.id);
     const reqs = deepTrace(g, tk);
     const linked = (k, kinds) => inOf(g, k).map((e) => e.from).filter((x) => kinds.includes(g.nodes.get(x).kind));
+    // the change this ticket builds (itself, or the change it is part of)
+    const building = new Set([t.id, ...t.refs.map((r) => String(r).toUpperCase()).filter((r) => store.state.tickets[r]?.kind === 'change')]);
     const requirementsOut = reqs.map((k) => {
       const n = g.nodes.get(k);
       const o = { id: n.id, title: clip(n.title, 140), ...currentText(g, n) };
+      if (o.proposed) {
+        o.proposed.note = building.has(o.proposed.change)
+          ? 'Your ticket builds this wording: it becomes the requirement when it is merged.'
+          : `Not in effect until ${o.proposed.change} is done: build to the current text unless your ticket says otherwise.`;
+      }
       const l = linkOf(n);
       if (l) o.link = l;
-      const decisions = linked(k, ['decision']);
+      const fresh = (x) => freshness(g, x, [k]);
+      const decisions = linked(k, ['decision']).filter((x) => !supersededBy(g, x));
       const questions = linked(k, ['question']).filter((q) => g.nodes.get(q).status === 'open');
       const notes = linked(k, ['note']);
-      const facts = linked(k, ['fact']);
+      // the human's answers: given on it directly, or to a question about it
+      const answered = linked(k, ['question']).flatMap((q) => inOf(g, q).filter((e) => e.type === 'answers').map((e) => e.from));
+      const facts = [...new Set([...linked(k, ['fact']), ...answered])];
       const others = inOf(g, k).filter((e) => e.type === 'implements' && e.from !== tk).map((e) => e.from);
-      if (decisions.length) o.decisions = decisions.slice(-5).map((x) => brief(g, x));
+      if (decisions.length) o.decisions = decisions.slice(-5).map((x) => brief(g, x, fresh(x)));
       if (questions.length) o.open_questions = questions.map((x) => brief(g, x));
-      if (notes.length) o.notes = notes.slice(-5).map((x) => ({ ...brief(g, x), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
-      if (facts.length) o.facts = facts.map((x) => g.nodes.get(x).title);
+      if (notes.length) o.notes = notes.slice(-5).map((x) => ({ ...brief(g, x, fresh(x)), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
+      if (facts.length) o.facts = facts.map((x) => (fresh(x).before_change ? `${g.nodes.get(x).title} (given before ${fresh(x).before_change} changed this: check it)` : g.nodes.get(x).title));
       if (others.length) o.other_tickets = others.slice(0, 8).map((x) => brief(g, x));
       const changes = inOf(g, k).filter((e) => ['amends', 'extends'].includes(e.type)).map((e) => `${IN_LABEL[e.type]} ${g.nodes.get(e.from).id}`);
       if (changes.length) o.changes = changes;
@@ -814,10 +902,10 @@ export function createIndex({ store, config, paths }) {
     });
     const own = (kinds) => inOf(g, tk).map((e) => e.from).filter((x) => kinds.includes(g.nodes.get(x).kind));
     const out = { requirements: requirementsOut };
-    const decisions = own(['decision']);
+    const decisions = own(['decision']).filter((x) => !supersededBy(g, x));
     const notes = own(['note']);
-    if (decisions.length) out.decisions = decisions.map((x) => brief(g, x));
-    if (notes.length) out.notes = notes.map((x) => ({ ...brief(g, x), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
+    if (decisions.length) out.decisions = decisions.map((x) => brief(g, x, freshness(g, x, reqs)));
+    if (notes.length) out.notes = notes.map((x) => ({ ...brief(g, x, freshness(g, x, reqs)), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
     const thread = own(['message']).length;
     if (thread) out.discussion = `${thread} message(s) about ${t.id}: mc_ref "${t.id}" with only: "discussion"`;
     if (t.kind === 'change' && (t.amends?.length || t.extends?.length)) out.impact = impact(t.id).line;
