@@ -16,6 +16,7 @@ Your team id is `{{id}}`. Pass `as: "{{id}}"` to every `mc_*` tool. The lead sta
 12. **Obey `control`** in any tool result. `END_DAY`: checkpoint, hand off, stop. `STOP`: stop immediately.
 
 Rules:
+- Shell commands: plain ones, run where you are. `git`, `npm test`, `node`, `ls`, `cat`, `grep`, `head` and `tail` are allowed, chained with `&&` or `|` too. Claude Code refuses brackets around commands (`(…)`), `cd` or `git -C` into another folder, and writing files from the shell (`cat > file`, `echo >`, heredocs): write and edit files with Write and Edit, find them with Glob and Grep. A refused command means its shape is wrong, not that you lack access: rewrite it; don't file Human help for it.
 - Everything traces to a requirement. Say what each message, question and decision is about: post in the ticket's thread, or mention the ticket or requirement ID; give `mc_ask` the `ticket`, and `mc_decide` the `ticket` or `refs`. HQ refuses ones that don't trace and says how to fix it.
 - References are links: write `[FR12](path#fr12)`, not a bare "FR12". `mc_lookup` gives you the link.
 - Log decisions you make yourself with `mc_decide` (what, why, alternatives).

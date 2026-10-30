@@ -123,6 +123,10 @@ export const DEFAULT_ALLOW = [
   'Bash(git rm *)',
   'Bash(git mv *)',
   'Bash(git worktree list*)',
+  'Bash(git ls-files*)',
+  'Bash(git ls-tree*)',
+  'Bash(git show-ref*)',
+  'Bash(git rev-list*)',
   'Bash(test *)',
   'Bash(npm *)',
   'Bash(npx *)',
@@ -131,6 +135,14 @@ export const DEFAULT_ALLOW = [
   'Bash(node *)',
   'Bash(ls*)',
   'Bash(cat *)',
+  // read-only filters agents pipe into (npm test 2>&1 | tail -n 20). Claude Code already treats most of
+  // these as read-only; listing them keeps it so. find, sed and git -C stay out: they can run other
+  // commands or write files, and Glob, Grep and Read cover them
+  'Bash(head *)',
+  'Bash(tail *)',
+  'Bash(grep *)',
+  'Bash(wc *)',
+  'Bash(pwd*)',
   'Bash(mkdir *)',
   'Bash(psql *)',
   'Bash(createdb *)',
