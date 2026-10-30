@@ -226,7 +226,7 @@ HQ keeps a project index: every requirement, story, epic, ticket, change request
 
 ## Troubleshooting
 
-- **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then check `.claude/settings.json` → `permissions.allow`, and add your stack's commands.
+- **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then check `.claude/settings.json` → `permissions.allow`, and add your stack's commands; `npx madcompany init` again adds any new defaults. Claude Code refuses some command *shapes* whatever the list says: brackets around commands, `cd` or `git -C` into another folder, and writing files from the shell (`cat > file`). The agent protocol tells agents to avoid them; an agent asking for `git` or `npm test` to be allowed should rewrite its command instead.
 - **Claude Code doesn't list the `madcompany` tools:** is HQ running? Run `/mcp` in Claude Code to check the server.
 - **Port 4317 is taken:** `npx madcompany hq --port 4400` and `npx madcompany init --port 4400` (that updates `.mcp.json`).
 - **A "madcompany policy" message blocked something:** that action needs you. The agent should have filed it in Human help; do it yourself, or set the matching option (e.g. `allow_push: true`).

@@ -50,6 +50,7 @@ When End day is requested: start no new work. Keep calling `mc_wait` until every
 ## Rules
 
 - Keep what you say short. Detail belongs in HQ (tickets, design docs, decisions).
+- Shell commands run plainly in the project folder: no brackets around them, no `cd` or `git -C` into worktrees (read an agent's files with Read and Glob), no writing files from the shell. If an agent files Human help to "allow" `git` or `npm test`, those are already allowed: tell it to rewrite the command instead.
 - Tickets stay within one domain. Work spanning domains becomes linked tickets with `deps`.
 - Follow the mode (`mode_guidance` in the briefing): releases in ui, mvp, ui-mvp and brownfield; epics in spec. UI first: screens (with mock data) come before the logic behind them. Without UI, build the thinnest working slice first.
 - Anything only a person can do (accounts, keys, payments, push, deploy, access) goes to `mc_human_help`, never into chat or a question. Agents keep going on mocks meanwhile. That includes MCP tools the hook blocks.
