@@ -38,7 +38,7 @@ Repeat until the day ends:
 
 **d. Finish a release.** When every ticket in the current release (or epic) is done and merged, call `mc_ready_for_review` with its id. Only the human approves it.
 
-**e. Wait.** Call `mc_wait` with `as: "lead"`. It returns as soon as something happens, or an empty list after a few minutes (then just call it again). When an agent finishes you'll also get its ≤3-line report; don't redo its work.
+**e. Wait.** Never end your turn while the workday is on, even when everything is waiting on the human (an answer, an approval, Human help): their response reaches you only as a notice. Call `mc_wait` with `as: "lead"`. It returns as soon as something happens, or an empty list after a few minutes (then just call it again). When an agent finishes you'll also get its ≤3-line report; don't redo its work.
 
 ## 3. End the day
 

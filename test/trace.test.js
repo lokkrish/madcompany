@@ -395,8 +395,14 @@ test('contradictions without a shared ID: possibly related items, routed conflic
   assert.ok(core.traceSummary().diagnostics.some((d) => d.startsWith(`${q.id} (use-case conflict on Story 2.1, FR2) is open with pm`)));
 
   // the PM settles it with a change; it waits for an owner's OK before anyone builds it
+  core.block('arjun', 'APP-1', { blockedBy: [q.id], done: 'Read the story', next: 'Build share() once the conflict is settled' });
   assert.throws(() => core.raiseChange('arjun', { text: 'x', amends: ['FR2'] }), /lead or the product manager/);
   const chg = core.raiseChange('pm', { text: 'A task can have up to 3 assignees', amends: ['FR2'], extends: ['Story 2.1'], from: q.id, why: 'Sharing is in scope' });
+  assert.deepEqual(chg.parked, ['APP-1']);
+  assert.deepEqual(core.ticket('APP-1').blockedBy, [q.id, chg.id], 'the parked story now waits for the change');
+  core.answer('pm', q.id, `Raised ${chg.id}; it needs the human's OK`);
+  assert.ok(!core.isReady(core.ticket('APP-1')), 'an answer that only raised a change does not unpark it');
+  notices.take();
   assert.equal(core.ticket(chg.id).approval, 'needed');
   assert.equal(core.ticket(chg.id).raisedBy, 'pm');
   assert.equal(core.dashboard().approve[0].id, chg.id);
@@ -405,6 +411,8 @@ test('contradictions without a shared ID: possibly related items, routed conflic
   assert.throws(() => core.approveChange('lead', chg.id), /Only a person/);
   core.approveChange('you', chg.id);
   assert.equal(core.ticket(chg.id).approval.by, 'you');
+  assert.ok(core.isReady(core.ticket('APP-1')));
+  assert.ok(notices.take().some((n) => n.kind === 'ready' && n.ticket === 'APP-1'), 'the approval unparks it');
   assert.ok(core.claim('arjun', chg.id).ticket);
 
   // reviews are recorded; what nobody checked is listed until someone does

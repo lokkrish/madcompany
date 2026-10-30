@@ -70,6 +70,7 @@ export function createNotices(core) {
         break;
       case 'ticket.approve':
         push('change', `${nameOf(ev.by)} approved ${d.id}; it can be started (split it into tickets with refs ["${d.id}"] or assign it).`, { ticket: d.id });
+        for (const u of readyAfter(d.id)) push('ready', `${u.id} can resume (${d.id} approved). Restart ${u.assignee ?? 'an agent'} on it, after ${d.id} if it needs that change built first.`, { ticket: u.id, agent: u.assignee });
         break;
       case 'ticket.map':
         // the lead sees its own mapping in the tool result; tell it when someone else mapped one
