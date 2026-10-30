@@ -86,7 +86,12 @@ export function createCore({ store, config, paths }) {
   const mode = () => modeInfo(config.mode);
   const byRelease = () => mode().unit === 'release';
   const depsDone = (t) => t.deps.every(isDone);
-  const blockersDone = (t) => t.blockedBy.every(isDone);
+  // a change the team raised stops blocking once a person approves it (building it may be the parked work itself)
+  const isSettled = (id) => {
+    const c = s().tickets[String(id).toUpperCase()];
+    return c?.kind === 'change' && c.approval && c.approval !== 'needed' ? true : isDone(id);
+  };
+  const blockersDone = (t) => t.blockedBy.every(isSettled);
   const isReady = (t) =>
     (t.status === 'todo' && depsDone(t)) || (t.status === 'blocked' && blockersDone(t) && depsDone(t));
 
@@ -1283,7 +1288,16 @@ export function createCore({ store, config, paths }) {
     const res = createTicket(lead, { title: `Change: ${String(f.text).trim().slice(0, 70)}`, body, kind: 'change', amends, extends: ext, approval: 'needed', raisedBy: as, ...(epic ? { epic } : {}) });
     const imp = index.impact(res.ticket.id);
     post(as, { channel: `ticket:${res.ticket.id}`, text: `${imp.line} Raised by ${as}; waits for the human's OK.` }, { system: true });
-    return { ok: true, id: res.ticket.id, ...imp, next: `It shows in HQ → Inbox for the human to approve or withdraw. Record the wording it proposes now with mc_requirement (id, text, change: "${res.ticket.id}").` };
+    // work parked on the conflict this settles now waits for the human's OK on the change, not just an answer
+    const touched = new Set([...amends, ...ext].map((x) => index.keyOf(x)));
+    const settles = new Set(
+      Object.values(s().questions)
+        .filter((q) => q.conflict && (q.id === from || (q.status === 'open' && q.conflict.about.some((x) => touched.has(index.keyOf(x))))))
+        .map((q) => q.id),
+    );
+    const parked = Object.values(s().tickets).filter((t) => t.status === 'blocked' && t.blockedBy.some((b) => settles.has(b)));
+    for (const t of parked) store.append('ticket.status', as, { id: t.id, status: 'blocked', blockedBy: [...new Set([...t.blockedBy, res.ticket.id])] });
+    return { ok: true, id: res.ticket.id, ...imp, ...(parked.length ? { parked: parked.map((t) => t.id) } : {}), next: `It shows in HQ → Inbox for the human to approve or withdraw.${parked.length ? ` ${parked.map((t) => t.id).join(', ')} now wait${parked.length > 1 ? '' : 's'} for that OK.` : ''} Record the wording it proposes now with mc_requirement (id, text, change: "${res.ticket.id}").` };
   }
   /** A person approves a change the team raised; until then nobody starts it. */
   function approveChange(as, id) {
