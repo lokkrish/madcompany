@@ -40,6 +40,12 @@ Mapping posts the **impact** in the change's thread: the tickets, designs, stori
 
 After a change, anything written before it about the same requirement is flagged: stories that still say the old thing, decisions made on it and your earlier answers. The lead rewords, supersedes or confirms each one.
 
+## Contradictions, even without a shared ID
+
+A story can contradict a requirement without ever naming it. Next to every story, requirement and ticket, the index lists what's **possibly related**: requirements, stories, decisions and your answers close in wording but not linked. Agents see the same list when they start a ticket.
+
+Whoever spots a contradiction raises it with `mc_conflict`, with both sides and a recommendation. Use-case conflicts go to the product manager, technical ones to the architect, and to the lead if the team has neither. `/mc-check` reviews new stories, added requirements and change requests against what's agreed, and HQ lists what nobody has checked yet. When a requirement has to give, the lead or PM raises a change request; it waits in your Inbox until you approve or withdraw it.
+
 ## What to fix
 
 The index reports problems it can see on the Trace page, in the lead's morning briefing and with `npx madcompany trace`:

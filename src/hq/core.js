@@ -250,6 +250,7 @@ export function createCore({ store, config, paths }) {
       inReview: units().filter((u) => u.status === 'review').map((u) => ({ id: u.id, title: u.title })),
       help: { open: help.length, blocking: help.filter((h) => waitingOn(h.id).length).length, top: help.slice(0, 3).map((h) => ({ id: h.id, title: h.title })) },
       needsYou: Object.values(s().questions).filter((q) => q.to === HUMAN && q.status === 'open').map((q) => ({ id: q.id, question: q.question })),
+      approve: tickets.filter((t) => t.kind === 'change' && t.approval === 'needed' && !t.withdrawn).map((t) => ({ id: t.id, title: t.title, by: t.raisedBy, amends: t.amends, extends: t.extends, body: t.body })),
       blocked: tickets.filter((t) => t.status === 'blocked').map((t) => ({ id: t.id, title: t.title, blockedBy: t.blockedBy, assignee: t.assignee })),
       shots,
       decisions: s().decisions.slice(-5).reverse(),
@@ -372,6 +373,7 @@ export function createCore({ store, config, paths }) {
       source: f.source ?? null,
       assignee: f.assignee ?? null,
       ...(kind === 'change' && (f.amends?.length || f.extends?.length) ? { amends: f.amends ?? [], extends: f.extends ?? [] } : {}),
+      ...(kind === 'change' && f.approval === 'needed' ? { approval: 'needed', raisedBy: f.raisedBy ?? as } : {}),
     });
     return withWarning({ ticket: briefTicket(s().tickets[id]) }, warning);
   }
@@ -436,12 +438,14 @@ export function createCore({ store, config, paths }) {
     // nobody builds a change before we know which requirements it changes
     let warning = null;
     if (strictness() !== 'off') {
-      if (['change', 'feedback'].includes(t.kind) && !index.mapping(t).mapped) {
+      if (t.kind === 'change' && t.approval === 'needed') {
+        warning = `${t.id} is a change the team raised; it waits for the human's OK in HQ → Inbox before anyone starts it.`;
+      } else if (['change', 'feedback'].includes(t.kind) && !index.mapping(t).mapped) {
         warning = `${t.id} is a ${t.kind === 'change' ? 'change request' : 'feedback ticket'} that isn't mapped to the requirements it amends or extends yet. Ask the lead to map it (mc_map_change) first.`;
       } else if (t.kind === 'task' && !index.trace(t.id).length) {
         warning = `${t.id} isn't linked to any requirement. Ask the lead to add refs (mc_update_ticket) or make it a chore.`;
       }
-      if (warning && strictness() === 'strict') throw new McError(warning);
+      if (warning && (strictness() === 'strict' || t.approval === 'needed')) throw new McError(warning);
     }
     // read the blockers before claiming: a claim clears them
     const blockers = [...t.blockedBy];
@@ -1216,6 +1220,81 @@ export function createCore({ store, config, paths }) {
     return { ok: true, withdrawn: [t.id, ...parts.map((p) => p.id)], line };
   }
 
+  // ---------- contradictions: raised, routed, reviewed ----------
+  /** Who settles a conflict: use-case ones the product manager, technical ones the architect; the lead otherwise. */
+  function conflictOwner(kind, as) {
+    const type = kind === 'use-case' ? 'product-manager' : 'architect';
+    return config.team.find((m) => m.type === type && m.id !== as)?.id ?? lead;
+  }
+  /**
+   * Raise a contradiction between a ticket, story, requirement, decision or
+   * answer and something already agreed. It's a question to whoever settles
+   * that kind of conflict, carrying both sides and a recommendation.
+   */
+  function conflict(as, f = {}) {
+    actor(as);
+    const about = (f.about ?? []).map(String).filter((x) => x.trim());
+    if (!about.length) throw new McError('Name both sides: about, e.g. ["Story 3.2", "FR2"].');
+    const found = index.check({ refs: about });
+    if (found.unknown.length) throw new McError(`${found.unknown.join(', ')} ${found.unknown.length > 1 ? "aren't" : "isn't"} defined anywhere (mc_lookup checks an ID).`);
+    const kind = f.kind === 'tech' ? 'tech' : f.kind === 'use-case' ? 'use-case' : null;
+    if (!kind) throw new McError('kind is "use-case" (what the product should do) or "tech" (how it is built).');
+    if (!String(f.conflict ?? '').trim()) throw new McError('Say what contradicts what.');
+    if (!String(f.recommendation ?? '').trim()) throw new McError('Recommend a way out: which side should win, or what should change.');
+    const to = conflictOwner(kind, as);
+    if (to === as) throw new McError(`Conflicts like this come to you. Settle it with mc_decide, raise a change (mc_change) for the human's OK, or mc_escalate if it's the human's call.`);
+    const tid = f.ticket ? ticket(f.ticket).id : null;
+    const ids = idsOf(about);
+    const id = nextId('q', 'Q');
+    const question = `Conflict (${kind}): ${String(f.conflict).trim()} Recommendation: ${String(f.recommendation).trim()}`;
+    store.append('question.ask', as, { id, to, question, ticket: tid, options: [], links: f.links ?? [], refs: ids, conflict: { kind, about: ids, recommendation: String(f.recommendation).trim() } });
+    post(as, { channel: `dm:${to}`, text: `${id} @${to}: ${question}` }, { system: true });
+    return { ok: true, id, to, note: `${id} went to ${to}${to === lead ? ' (the lead)' : ''}. Don't build either side meanwhile: park the ticket with mc_block (blockedBy: ["${id}"]) if it depends on the answer.` };
+  }
+  /** Record that stories, requirements or changes were checked against what's agreed. */
+  function check(as, f = {}) {
+    const m = member(config, as);
+    if (!canPlan(as) && m?.type !== 'architect') throw new McError('The lead, the product manager or the architect checks for conflicts.');
+    const ids = (f.ids ?? []).map(String).filter((x) => x.trim());
+    if (!ids.length) throw new McError('Say what you checked: ids, e.g. ["Story 2.1", "APP-7"].');
+    const found = index.check({ refs: ids });
+    if (found.unknown.length) throw new McError(`${found.unknown.join(', ')} ${found.unknown.length > 1 ? "aren't" : "isn't"} defined anywhere.`);
+    if (!['consistent', 'conflict'].includes(f.verdict)) throw new McError('verdict is "consistent" or "conflict".');
+    const raised = (f.conflicts ?? []).map((q) => String(q).toUpperCase());
+    if (f.verdict === 'conflict' && !raised.some((q) => s().questions[q]?.conflict)) throw new McError('Raise each conflict with mc_conflict first, then pass their question IDs as conflicts.');
+    store.append('consistency.check', as, { ids: idsOf(ids), verdict: f.verdict, note: [f.note, raised.length ? `Conflicts: ${raised.join(', ')}` : ''].filter(Boolean).join(' ') });
+    return { ok: true };
+  }
+  /**
+   * The lead or PM raises a change request (typically to settle a conflict).
+   * It must say what it amends or extends, and waits for a person's OK before
+   * anyone starts it; the human raises theirs in HQ and needs no OK.
+   */
+  function raiseChange(as, f = {}) {
+    if (isHuman(as) || !canPlan(as)) throw new McError('The lead or the product manager raises a change; people do it in HQ → Inbox.');
+    if (!String(f.text ?? '').trim()) throw new McError('Describe the change.');
+    const amends = idsOf(f.amends);
+    const ext = idsOf(f.extends);
+    checkMapping(amends, ext);
+    const from = f.from ? String(f.from).toUpperCase() : null;
+    if (from && !s().questions[from]) throw new McError(`No question ${f.from}.`);
+    const epic = !byRelease() ? index.epicOf([...amends, ...ext]) : null;
+    const body = `${String(f.text).trim()}${f.why ? `\n\nWhy: ${f.why}` : ''}${from ? `\n\nFrom ${from}.` : ''}`;
+    const res = createTicket(lead, { title: `Change: ${String(f.text).trim().slice(0, 70)}`, body, kind: 'change', amends, extends: ext, approval: 'needed', raisedBy: as, ...(epic ? { epic } : {}) });
+    const imp = index.impact(res.ticket.id);
+    post(as, { channel: `ticket:${res.ticket.id}`, text: `${imp.line} Raised by ${as}; waits for the human's OK.` }, { system: true });
+    return { ok: true, id: res.ticket.id, ...imp, next: `It shows in HQ → Inbox for the human to approve or withdraw. Record the wording it proposes now with mc_requirement (id, text, change: "${res.ticket.id}").` };
+  }
+  /** A person approves a change the team raised; until then nobody starts it. */
+  function approveChange(as, id) {
+    if (!isHuman(as)) throw new McError('Only a person approves a change.');
+    const t = ticket(id);
+    if (t.kind !== 'change' || t.approval !== 'needed') throw new McError(`${t.id} isn't waiting for approval.`);
+    if (t.withdrawn) throw new McError(`${t.id} was withdrawn.`);
+    store.append('ticket.approve', as, { id: t.id });
+    return { ok: true };
+  }
+
   /**
    * Add a requirement (from the brief, MVP scope or a change request), or
    * amend an existing one, PRD or not, with the change request behind it.
@@ -1354,6 +1433,10 @@ export function createCore({ store, config, paths }) {
     change,
     mapChange,
     withdrawChange,
+    conflict,
+    check,
+    raiseChange,
+    approveChange,
     defineRequirement,
     note,
     ref,

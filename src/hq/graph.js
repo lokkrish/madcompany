@@ -45,6 +45,26 @@ const DEPENDS = /^\s*[-*]?\s*\**(?:Depends on|Dependencies|Blocked by)\**\s*:/i;
 const PATH = /(?:^|[\s(\[`'"])((?:\.{1,2}\/)*(?:[\w@.-]+\/)+[\w@.-]+\.[a-z0-9]{1,8})/gi;
 const LINK_ANCHOR = /\]\([^)\s]*#([a-z0-9-]+)\)/g;
 const MAX_SECTION = 8000;
+// words that say nothing about what a requirement is about. Quantities (one, only, all, each…) stay:
+// "exactly one" against "several" is where contradictions live
+const STOP = new Set(
+  'the and for with that this from into than then when which who what will must should may can are was were has have had per via its their there these those our your users user able also such use used using shall being been does done make made get set way want'.split(' '),
+);
+/** Lower-case word stems, for "possibly related" (shared vocabulary, not shared IDs). */
+export function terms(text) {
+  const out = [];
+  for (let w of String(text ?? '').toLowerCase().replace(/<[^>]+>|\]\([^)]*\)/g, ' ').split(/[^a-z]+/)) {
+    if (w.length < 3 || STOP.has(w)) continue;
+    // a light stemmer: assignees, assignee, assigned, assigning → assign(e) alike
+    if (w.length > 4 && w.endsWith('ies')) w = `${w.slice(0, -3)}y`;
+    else if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1);
+    if (w.length > 5) w = w.replace(/(ing|ed)$/, '');
+    if (w.length > 6 && w.endsWith('ee')) w = w.slice(0, -2); // assignee → assign
+    else if (w.length > 4 && w.endsWith('e')) w = w.slice(0, -1);
+    out.push(w);
+  }
+  return out;
+}
 
 // a line of markdown as plain text, whole (cleanTitle shortens it)
 const plain = (t) =>
@@ -579,6 +599,8 @@ export function createIndex({ store, config, paths }) {
       if (!groups[weak].size) delete groups[weak];
     }
     const card = { id: n.id, kind: n.kind === 'ticket' ? `ticket (${n.sub})` : n.kind, title: n.title };
+    const check = checkOf(n.key);
+    if (check) card.checked = check;
     if (n.status) card.status = n.status;
     if (n.by && n.kind !== 'requirement') card.by = n.by;
     const l = linkOf(n);
@@ -613,6 +635,10 @@ export function createIndex({ store, config, paths }) {
       const marks = (m) => (['decision', 'fact', 'note'].includes(g.nodes.get(m).kind) ? freshness(g, m, scope) : {});
       card[name] = entries.slice(0, cap).map(([m, x]) => brief(g, m, { ...(x ?? {}), ...marks(m) }));
       if (entries.length > cap) more[name] = entries.length - cap;
+    }
+    if ((isReq(n) || n.kind === 'ticket') && (!only || only === 'possibly related')) {
+      const rel = relatedTo(g, textOf(g, n), linkedSet(g, k), only ? 15 : 5);
+      if (rel.length) card['possibly related'] = rel;
     }
     if (Object.keys(more).length) card.more = Object.fromEntries(Object.entries(more).map(([name, c]) => [name, `${c} more: mc_ref with only: "${name}"`]));
     const diags = diagnostics().filter((d) => d.ids.includes(n.id));
@@ -694,7 +720,16 @@ export function createIndex({ store, config, paths }) {
       a.stories.length ? `stories ${a.stories.map((x) => x.id).join(', ')}` : null,
       a.questions.length ? `open questions ${a.questions.map((x) => x.id).join(', ')}` : null,
     ].filter(Boolean);
-    return { change: t.id, amends: amended.map((k) => g.nodes.get(k).id), extends: extended.map((k) => g.nodes.get(k).id), affected: a, line: `Impact of ${t.id}: ${parts.join('; ') || 'nothing built on it yet'}.` };
+    const exclude = linkedSet(g, ck);
+    for (const r of [...amended, ...extended]) exclude.add(r);
+    const near = relatedTo(g, `${t.title} ${t.body}`, exclude, 5);
+    return { change: t.id, amends: amended.map((k) => g.nodes.get(k).id), extends: extended.map((k) => g.nodes.get(k).id), affected: a, ...(near.length ? { possibly_related: near } : {}), line: `Impact of ${t.id}: ${parts.join('; ') || 'nothing built on it yet'}.` };
+  }
+
+  /** The latest consistency check that covered this item, if any. */
+  function checkOf(k) {
+    const c = (store.state.checks ?? []).filter((x) => x.ids.some((id) => keyOf(id) === k)).at(-1);
+    return c ? { verdict: c.verdict, by: c.by, ts: c.ts, ...(c.note ? { note: c.note } : {}) } : null;
   }
 
   /** Is this change request (or feedback) tied to the requirements it changes? */
@@ -785,6 +820,19 @@ export function createIndex({ store, config, paths }) {
         }
       }
     }
+    for (const q of Object.values(s.questions)) {
+      if (q.conflict && q.status === 'open') add('open-conflict', `${q.id} (${q.conflict.kind} conflict on ${q.conflict.about.join(', ')}) is open with ${q.to}: ${clip(q.question, 120)}`, [q.id, ...q.conflict.about]);
+    }
+    for (const t of tickets) {
+      if (t.kind === 'change' && t.approval === 'needed' && !t.withdrawn) add('awaiting-approval', `${t.id} (a change the team raised) waits for the human's OK in HQ → Inbox before anyone starts it.`, [t.id]);
+    }
+    // new stories, added requirements and changes are checked against what's already agreed
+    const unchecked = [...g.nodes.values()]
+      .filter((n) => (n.kind === 'story' || (n.ledger && isReq(n)) || (n.kind === 'ticket' && n.sub === 'change' && n.status !== 'withdrawn' && n.status !== 'done' && s.tickets[n.id]?.mappedSeq)) && !checkOf(n.key))
+      .map((n) => n.id);
+    if (unchecked.length) {
+      add('unchecked', `${unchecked.length} not checked for conflicts with what's already agreed: ${unchecked.slice(0, 8).join(', ')}${unchecked.length > 8 ? '…' : ''}. Run /mc-check (mc_check records the result).`, unchecked);
+    }
     for (const u of g.unknown) add('unknown-ref', `${u.from} refers to ${u.raw}, which isn't defined anywhere.`, [u.from]);
     for (const t of tickets) {
       if (!['in_review', 'done'].includes(t.status)) continue;
@@ -864,6 +912,97 @@ export function createIndex({ store, config, paths }) {
       });
   }
 
+  // ---------- possibly related: what shares vocabulary without sharing an ID ----------
+  const KNOWLEDGE = new Set(['requirement', 'story', 'decision', 'fact']);
+  function textOf(g, n) {
+    const s = store.state;
+    if (n.kind === 'decision') {
+      const d = s.decisions.find((x) => x.id === n.id);
+      return `${d.title} ${d.decision} ${d.why}`;
+    }
+    if (n.kind === 'story' && n.file) return `${n.title} ${sectionLines(n).join(' ').slice(0, 1200)}`;
+    if (isReq(n)) {
+      const w = wording(g, n);
+      return `${n.title} ${w.text ?? ''} ${w.proposed?.text ?? ''}`;
+    }
+    if (n.kind === 'ticket') {
+      const t = s.tickets[n.id];
+      return `${t.title} ${t.body}`;
+    }
+    return n.title ?? '';
+  }
+  /** Term weights for every requirement, story, decision and answer (built once per index). */
+  function termIndex(g) {
+    if (g.terms) return g.terms;
+    const docs = new Map();
+    const df = new Map();
+    for (const n of g.nodes.values()) {
+      if (!KNOWLEDGE.has(n.kind) || (REQ_KINDS.has(n.kind) && !isReq(n))) continue;
+      if (n.kind === 'decision' && supersededBy(g, n.key)) continue;
+      const tf = new Map();
+      for (const w of terms(textOf(g, n))) tf.set(w, (tf.get(w) ?? 0) + 1);
+      if (!tf.size) continue;
+      docs.set(n.key, tf);
+      for (const w of tf.keys()) df.set(w, (df.get(w) ?? 0) + 1);
+    }
+    const idf = new Map([...df].map(([w, c]) => [w, Math.log(1 + docs.size / c)]));
+    const weigh = (tf) => {
+      const v = new Map();
+      let norm = 0;
+      for (const [w, c] of tf) {
+        const x = c * (idf.get(w) ?? Math.log(1 + docs.size));
+        v.set(w, x);
+        norm += x * x;
+      }
+      return { v, norm: Math.sqrt(norm) };
+    };
+    g.terms = { docs: new Map([...docs].map(([k, tf]) => [k, weigh(tf)])), weigh };
+    return g.terms;
+  }
+  /**
+   * Requirements, stories, decisions and answers that share vocabulary with
+   * this text but aren't linked to it: where an unnoticed contradiction would
+   * hide. Deterministic word overlap; a model decides whether they conflict.
+   */
+  function relatedTo(g, text, exclude, limit = 5) {
+    const ix = termIndex(g);
+    const tf = new Map();
+    for (const w of terms(text)) tf.set(w, (tf.get(w) ?? 0) + 1);
+    const q = ix.weigh(tf);
+    if (!q.norm) return [];
+    const scored = [];
+    for (const [k, d] of ix.docs) {
+      if (exclude.has(k)) continue;
+      let dot = 0;
+      let covered = 0;
+      let shared = 0;
+      for (const [w, x] of q.v) {
+        if (!d.v.has(w)) continue;
+        dot += x * d.v.get(w);
+        covered += d.v.get(w) ** 2;
+        shared += 1;
+      }
+      // similar overall, or covering much of a short requirement; one shared word is never enough
+      const score = Math.max(dot / (q.norm * d.norm), covered / d.norm ** 2);
+      if (shared >= 2 && score >= 0.2) scored.push([k, score]);
+    }
+    return scored.sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k, score]) => brief(g, k, { similarity: Math.round(score * 100) / 100 }));
+  }
+  /** What's already linked to an item (so "related" only shows what isn't). */
+  function linkedSet(g, k) {
+    const out = new Set([k]);
+    for (const e of [...outOf(g, k), ...inOf(g, k)]) out.add(e.to === k ? e.from : e.to);
+    for (const r of deepTrace(g, k)) {
+      out.add(r);
+      for (const e of [...outOf(g, r), ...inOf(g, r)]) out.add(e.to === r ? e.from : e.to);
+    }
+    return out;
+  }
+  function related(raw, limit = 5) {
+    const { g, n } = nodeFor(raw);
+    return relatedTo(g, textOf(g, n), linkedSet(g, n.key), limit);
+  }
+
   /** What an agent needs when it starts a ticket: its requirements as they stand now, and what is known about them. */
   function contextFor(ticketId) {
     const g = build();
@@ -906,6 +1045,11 @@ export function createIndex({ store, config, paths }) {
     const notes = own(['note']);
     if (decisions.length) out.decisions = decisions.map((x) => brief(g, x, freshness(g, x, reqs)));
     if (notes.length) out.notes = notes.map((x) => ({ ...brief(g, x, freshness(g, x, reqs)), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
+    // close in wording but not linked: the place a contradiction would go unnoticed
+    const exclude = linkedSet(g, tk);
+    for (const r of reqs) for (const e of inOf(g, r)) exclude.add(e.from);
+    const near = relatedTo(g, [textOf(g, g.nodes.get(tk)), ...reqs.map((r) => textOf(g, g.nodes.get(r)))].join(' '), exclude, 4);
+    if (near.length) out.possibly_related = { note: 'Not linked to this ticket, but close in wording. Check none contradicts what you build; if one does, mc_conflict.', items: near };
     const thread = own(['message']).length;
     if (thread) out.discussion = `${thread} message(s) about ${t.id}: mc_ref "${t.id}" with only: "discussion"`;
     if (t.kind === 'change' && (t.amends?.length || t.extends?.length)) out.impact = impact(t.id).line;
@@ -972,6 +1116,8 @@ export function createIndex({ store, config, paths }) {
     coverage,
     requirements,
     contextFor,
+    related,
+    checkOf: (raw) => checkOf(keyOf(raw)),
     epicOf,
     nextRequirementId,
   };

@@ -262,6 +262,8 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/map') return need(2) && ok(res, () => core.mapChange(who.id, body.id, { amends: body.amends, extends: body.extends }));
       if (p === '/api/requirement') return need(2) && ok(res, () => core.defineRequirement(who.id, body));
       if (p === '/api/withdraw') return need(2) && ok(res, () => core.withdrawChange(who.id, body.id, body.reason));
+      // the team's change requests wait for an owner's OK: scope is theirs to settle
+      if (p === '/api/change/approve') return need(3) && ok(res, () => core.approveChange(who.id, body.id));
       if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
       if (p === '/api/help') return need(2) && ok(res, () => core.requestHelp(who.id, body));
       if (p === '/api/tools/restaff') return need(3) && ok(res, () => (staff(paths, { log: () => {} }), { ok: true }));

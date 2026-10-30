@@ -359,3 +359,60 @@ test('HQ: the index over MCP and the API, and the requirements log', async () =>
     await hq.close();
   }
 });
+
+test('contradictions without a shared ID: possibly related items, routed conflicts, checks and changes that wait for an OK', () => {
+  const team = TEAM.replace('max_parallel: 2', 'max_parallel: 2\ntraceability: strict').replace('  - id: qa\n', '  - id: pm\n    type: product-manager\n  - id: arch\n    type: architect\n  - id: qa\n');
+  const ctx = makeCore({ team });
+  const { core, notices } = ctx;
+  fs.mkdirSync(path.join(ctx.root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(ctx.root, 'docs', 'prd.md'), PRD);
+  fs.writeFileSync(path.join(ctx.root, 'docs', 'epics.md'), EPICS);
+  // a later story that never names FR2 but says the opposite
+  fs.writeFileSync(path.join(ctx.root, 'docs', 'backlog.md'), '# Backlog\n\n## <a id="epic-2"></a>Epic 2: Sharing\n\n### <a id="story-2-1"></a>Story 2.1: Share a task\n\nSeveral people can be the assignee of one task at the same time.\n');
+  core.startDay('you');
+
+  // the index puts FR2 in front of whoever looks at the story, though nothing links them
+  const near = core.ref('lead', 'Story 2.1')['possibly related'];
+  assert.ok(near.some((x) => x.id === 'FR2'), JSON.stringify(near));
+  core.createTicket('lead', { title: 'Shared tasks API', refs: ['Story 2.1'] });
+  const pkg = core.claim('arjun', 'APP-1');
+  assert.ok(pkg.context.possibly_related.items.some((x) => x.id === 'FR2'));
+  assert.match(pkg.context.possibly_related.note, /mc_conflict/);
+
+  // a use-case conflict goes to the product manager, a technical one to the architect
+  assert.throws(() => core.conflict('arjun', { about: ['Story 2.1', 'FR2'], kind: 'use-case', conflict: 'x' }), /Recommend a way out/);
+  assert.throws(() => core.conflict('arjun', { about: ['FR99'], kind: 'tech', conflict: 'x', recommendation: 'y' }), /FR99 isn't defined/);
+  notices.take();
+  const q = core.conflict('arjun', { about: ['Story 2.1', 'FR2'], kind: 'use-case', conflict: 'Story 2.1 lets several people be the assignee; FR2 says exactly one.', recommendation: 'Amend FR2 to allow co-assignees, or drop sharing from Story 2.1.', ticket: 'APP-1' });
+  assert.equal(q.to, 'pm');
+  assert.ok(notices.take().some((n) => n.kind === 'wake' && n.agent === 'pm'), 'the PM is woken to settle it');
+  assert.equal(core.conflict('arjun', { about: ['APP-1'], kind: 'tech', conflict: 'The store keys tasks by title', recommendation: 'Key by id' }).to, 'arch');
+  assert.equal(core.conflict('pm', { about: ['FR2'], kind: 'use-case', conflict: 'x', recommendation: 'y' }).to, 'lead', 'not back to the one who raised it');
+  assert.equal(core.conflict('lead', { about: ['APP-1'], kind: 'tech', conflict: 'x', recommendation: 'y' }).to, 'arch');
+  const small = project().core; // no PM or architect: conflicts go to the lead, who settles its own
+  assert.equal(small.conflict('arjun', { about: ['FR2'], kind: 'use-case', conflict: 'x', recommendation: 'y' }).to, 'lead');
+  assert.throws(() => small.conflict('lead', { about: ['FR2'], kind: 'tech', conflict: 'x', recommendation: 'y' }), /Settle it with mc_decide/);
+  assert.ok(core.traceSummary().diagnostics.some((d) => d.startsWith(`${q.id} (use-case conflict on Story 2.1, FR2) is open with pm`)));
+
+  // the PM settles it with a change; it waits for an owner's OK before anyone builds it
+  assert.throws(() => core.raiseChange('arjun', { text: 'x', amends: ['FR2'] }), /lead or the product manager/);
+  const chg = core.raiseChange('pm', { text: 'A task can have up to 3 assignees', amends: ['FR2'], extends: ['Story 2.1'], from: q.id, why: 'Sharing is in scope' });
+  assert.equal(core.ticket(chg.id).approval, 'needed');
+  assert.equal(core.ticket(chg.id).raisedBy, 'pm');
+  assert.equal(core.dashboard().approve[0].id, chg.id);
+  assert.throws(() => core.claim('arjun', chg.id), /waits for the human's OK/);
+  assert.ok(core.traceSummary().diagnostics.some((d) => d.startsWith(`${chg.id} (a change the team raised) waits for the human's OK`)));
+  assert.throws(() => core.approveChange('lead', chg.id), /Only a person/);
+  core.approveChange('you', chg.id);
+  assert.equal(core.ticket(chg.id).approval.by, 'you');
+  assert.ok(core.claim('arjun', chg.id).ticket);
+
+  // reviews are recorded; what nobody checked is listed until someone does
+  assert.ok(core.traceSummary().diagnostics.some((d) => /not checked for conflicts/.test(d) && d.includes('Story 2.1')));
+  assert.throws(() => core.check('arjun', { ids: ['Story 2.1'], verdict: 'consistent' }), /lead, the product manager or the architect/);
+  assert.throws(() => core.check('pm', { ids: ['Story 2.1'], verdict: 'conflict' }), /Raise each conflict with mc_conflict first/);
+  core.check('pm', { ids: ['Story 2.1'], verdict: 'conflict', conflicts: [q.id] });
+  core.check('lead', { ids: ['Story 1.1', 'Story 1.2', chg.id], verdict: 'consistent' });
+  assert.equal(core.ref('lead', 'Story 2.1').checked.verdict, 'conflict');
+  assert.ok(!core.traceSummary().diagnostics.some((d) => /not checked for conflicts/.test(d)));
+});
