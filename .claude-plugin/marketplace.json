@@ -20,6 +20,7 @@
         "./skills/mc-plan-release",
         "./skills/mc-plan-epic",
         "./skills/mc-ui-sprint",
+        "./skills/mc-check",
         "./skills/mc-minutes",
         "./skills/mc-start",
         "./skills/mc-end-day",

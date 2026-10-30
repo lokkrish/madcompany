@@ -36,6 +36,9 @@ test('init merges into existing settings and never clobbers them', () => {
   const st = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'settings.json'), 'utf8'));
   assert.equal(st.model, 'opus');
   assert.ok(st.permissions.allow.includes('Bash(make *)') && st.permissions.allow.includes('mcp__madcompany'));
+  // read-only commands agents chain and pipe into; nothing that runs other commands or writes files
+  for (const r of ['Bash(git ls-tree*)', 'Bash(tail *)', 'Bash(grep *)']) assert.ok(st.permissions.allow.includes(r), r);
+  for (const r of ['Bash(find *)', 'Bash(git -C *)', 'Bash(sed *)']) assert.ok(!st.permissions.allow.some((x) => x.startsWith(r.slice(0, -2))), r);
   assert.equal(st.hooks.PreToolUse.length, 1);
   assert.equal(st.hooks.PostToolUse.length, 1);
   assert.equal(st.hooks.PostToolUse[0].matcher, 'Artifact');
@@ -73,8 +76,8 @@ test('merge queue: merges an approved ticket, reverts and reopens on failing che
   const c = await connect(paths);
   const core = c.core;
   core.startDay('lead');
-  core.createTicket('lead', { title: 'Good', epic: 'E1' });
-  core.createTicket('lead', { title: 'Bad', epic: 'E1' });
+  core.createTicket('lead', { title: 'Good', epic: 'E1', kind: 'chore' });
+  core.createTicket('lead', { title: 'Bad', epic: 'E1', kind: 'chore' });
   core.claim('arjun', 'APP-1');
   assert.throws(() => core.submit('arjun', 'APP-1', { summary: 'x', checks: { test: 'pass' } }), /mc\/app-1 doesn't exist/);
   g('branch', 'mc/app-1', 'main');

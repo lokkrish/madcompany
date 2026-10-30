@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 export function emptyState() {
   return {
     seq: 0,
-    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0, release: 0, help: 0 },
+    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0, release: 0, help: 0, note: 0 },
     minutes: [],
     links: [],
     workday: { state: 'off', since: null },
@@ -22,6 +22,12 @@ export function emptyState() {
     decisions: [],
     questions: {},
     facts: [],
+    // requirements defined in HQ (FR21…) and amendments to any requirement, from change requests
+    requirements: {},
+    amendments: [],
+    notes: [],
+    // consistency reviews: which stories, requirements and changes were checked against what's agreed
+    checks: [],
     designs: {},
     envs: {},
     handoffs: {},
@@ -119,6 +125,15 @@ export function applyEvent(s, ev) {
         kind: d.kind ?? 'task',
         source: d.source ?? null,
         assignee: d.assignee ?? null,
+        // change requests: the requirements they amend or extend (see ticket.map)
+        amends: d.amends ?? [],
+        extends: d.extends ?? [],
+        mappedBy: d.amends?.length || d.extends?.length ? ev.by : null,
+        mappedAt: d.amends?.length || d.extends?.length ? ev.ts : null,
+        mappedSeq: d.amends?.length || d.extends?.length ? ev.seq : null,
+        // a change the team raised waits for a person's OK ("needed"), then holds who gave it
+        approval: d.approval ?? null,
+        raisedBy: d.raisedBy ?? null,
         status: 'todo',
         blockedBy: [],
         attempts: 0,
@@ -133,16 +148,28 @@ export function applyEvent(s, ev) {
       };
       break;
     case 'ticket.update':
-      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs']) if (k in d.fields) t[k] = d.fields[k];
+      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs', 'kind']) if (k in d.fields) t[k] = d.fields[k];
+      break;
+    case 'ticket.map':
+      // the first mapping is when the change started to count: "before the change" means before that
+      if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: t.mappedBy ?? ev.by, mappedAt: t.mappedAt ?? ev.ts, mappedSeq: t.mappedSeq ?? ev.seq });
+      break;
+    case 'ticket.approve':
+      if (t) t.approval = { by: ev.by, ts: ev.ts };
+      break;
+    // a change request (or a ticket split from one) that won't be built: closed, and its amendments drop
+    case 'ticket.withdraw':
+      if (t) Object.assign(t, { status: 'done', blockedBy: [], withdrawn: { by: ev.by, ts: ev.ts, reason: d.reason ?? '' } });
       break;
     case 'ticket.assign':
       if (t) t.assignee = d.agent;
       break;
     case 'ticket.claim':
       if (t) {
+        // resuming a parked ticket isn't a new try: waiting on an answer, an approval or Human help is no failure
+        if (t.status !== 'blocked') t.attempts += 1;
         t.status = 'in_progress';
         t.assignee = ev.by;
-        t.attempts += 1;
         t.blockedBy = [];
       }
       break;
@@ -175,7 +202,7 @@ export function applyEvent(s, ev) {
 
     case 'decision.log':
       s.counters.dec = Math.max(s.counters.dec, num(d.id));
-      s.decisions.push({ ...d, by: ev.by, ts: ev.ts });
+      s.decisions.push({ ...d, by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
 
     case 'question.ask':
@@ -188,9 +215,12 @@ export function applyEvent(s, ev) {
         options: d.options ?? [],
         recommended: d.recommended ?? null,
         links: d.links ?? [],
+        refs: d.refs ?? [],
+        conflict: d.conflict ?? null,
         ticket: d.ticket ?? null,
         status: 'open',
         ts: ev.ts,
+        seq: ev.seq,
         trail: [ev.by, d.to],
       };
       break;
@@ -214,7 +244,21 @@ export function applyEvent(s, ev) {
 
     case 'fact.add':
       s.counters.fact = Math.max(s.counters.fact, num(d.id));
-      s.facts.push({ id: d.id, text: d.text, source: d.source ?? null, by: ev.by, ts: ev.ts });
+      s.facts.push({ id: d.id, text: d.text, source: d.source ?? null, by: ev.by, ts: ev.ts, seq: ev.seq });
+      break;
+
+    case 'requirement.add':
+      s.requirements[d.id] = { extends: [], change: null, source: null, ...d, by: ev.by, ts: ev.ts };
+      break;
+    case 'requirement.amend':
+      s.amendments.push({ ...d, by: ev.by, ts: ev.ts });
+      break;
+    case 'consistency.check':
+      s.checks.push({ ids: d.ids ?? [], verdict: d.verdict, note: d.note ?? '', by: ev.by, ts: ev.ts, seq: ev.seq });
+      break;
+    case 'note.add':
+      s.counters.note = Math.max(s.counters.note ?? 0, num(d.id));
+      s.notes.push({ about: [], scope: 'story', ...d, by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
 
     case 'design.write': {
@@ -279,6 +323,9 @@ export function summarize(ev) {
   switch (ev.type) {
     case 'ticket.create': return `created (${d.kind ?? 'task'})`;
     case 'ticket.update': return `updated ${Object.keys(d.fields ?? {}).join(', ')}`;
+    case 'ticket.withdraw': return `withdrawn${d.reason ? `: ${d.reason}` : ''}`;
+    case 'ticket.approve': return 'change approved';
+    case 'ticket.map': return `mapped: ${[d.amends?.length ? `amends ${d.amends.join(', ')}` : '', d.extends?.length ? `extends ${d.extends.join(', ')}` : ''].filter(Boolean).join('; ') || 'nothing'}`;
     case 'ticket.assign': return `assigned to ${d.agent}`;
     case 'ticket.claim': return 'started work';
     case 'ticket.status':
@@ -324,6 +371,10 @@ export function describeEvent(ev) {
     case 'help.request': return `needs human help ${d.id}: ${clip(d.title)}`;
     case 'help.done': return `did ${d.id}${d.note ? `: ${clip(d.note)}` : ''}`;
     case 'help.cancel': return `cancelled ${d.id}`;
+    case 'requirement.add': return `added requirement ${d.id}: ${clip(d.title)}`;
+    case 'requirement.amend': return `amended ${d.id}${d.change ? ` (${d.change})` : ''}: ${clip(d.text)}`;
+    case 'consistency.check': return `checked ${(d.ids ?? []).join(', ')} for conflicts: ${d.verdict}`;
+    case 'note.add': return `noted on ${(d.about ?? []).join(', ')}: ${clip(d.text)}`;
     default: return null;
   }
 }

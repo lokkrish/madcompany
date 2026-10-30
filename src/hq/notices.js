@@ -57,7 +57,24 @@ export function createNotices(core) {
         break;
       }
       case 'ticket.create':
-        if (core.isHuman(ev.by)) push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}`, { ticket: d.id });
+        if (d.approval === 'needed') push('change', `${d.raisedBy} raised change ${d.id} (${d.title}); it waits for the human's OK in HQ → Inbox.`, { ticket: d.id });
+        if (core.isHuman(ev.by)) {
+          const mapped = d.amends?.length || d.extends?.length;
+          const map = mapped
+            ? ` ${core.index.impact(d.id).line} Post the impact check and handle the affected tickets.`
+            : ['change', 'feedback'].includes(d.kind)
+              ? ' Map it to the requirements it amends or extends (mc_map_change); it returns the impact to post.'
+              : '';
+          push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}.${map}`, { ticket: d.id });
+        }
+        break;
+      case 'ticket.approve':
+        push('change', `${nameOf(ev.by)} approved ${d.id}; it can be started (split it into tickets with refs ["${d.id}"] or assign it).`, { ticket: d.id });
+        for (const u of readyAfter(d.id)) push('ready', `${u.id} can resume (${d.id} approved). Restart ${u.assignee ?? 'an agent'} on it, after ${d.id} if it needs that change built first.`, { ticket: u.id, agent: u.assignee });
+        break;
+      case 'ticket.map':
+        // the lead sees its own mapping in the tool result; tell it when someone else mapped one
+        if (ev.by !== lead) push('change', `${nameOf(ev.by)} mapped ${d.id}: ${core.index.impact(d.id).line} Post the impact check and handle the affected tickets.`, { ticket: d.id });
         break;
       case 'ticket.status':
         if (!t) break;
@@ -66,6 +83,10 @@ export function createNotices(core) {
         if (d.status === 'done') {
           for (const u of readyAfter(t.id)) push('ready', `${u.id} is ready now that ${t.id} is done${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });
         }
+        break;
+      case 'ticket.withdraw':
+        if (ev.by !== lead) push('change', `${nameOf(ev.by)} withdrew ${d.id}: ${d.reason ?? ''}`, { ticket: d.id });
+        for (const u of readyAfter(d.id)) push('ready', `${u.id} is ready now that ${d.id} is withdrawn${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });
         break;
       case 'ticket.review':
         if (d.verdict === 'approve') push('merge', `${d.id} approved by ${ev.by}. Merge it: npx madcompany merge ${d.id}`, { ticket: d.id });

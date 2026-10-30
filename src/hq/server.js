@@ -28,7 +28,7 @@ const RAW = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.html', 
 const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
-const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel']);
+const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel', 'traceView', 'ref', 'mapChange', 'defineRequirement', 'withdrawChange']);
 
 export function createHq({ paths, port = 4317, quiet = false, share = false, bind = null }) {
   const config = loadConfig(paths);
@@ -126,6 +126,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
     config.leadId = fresh.leadId;
     config.max_parallel = fresh.max_parallel;
     config.tools = fresh.tools;
+    config.traceability = fresh.traceability;
     writePolicy(paths, config);
   }
 
@@ -222,6 +223,10 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
         return sess ? json(res, 200, sess) : json(res, 404, { error: 'No such conversation' });
       }
       if (p.startsWith('/api/memory/')) return json(res, 200, core.memoryRead(decodeURIComponent(p.slice(12))));
+      // the project index: everything linked to an ID, its text, and the traceability map
+      if (p === '/api/ref') return ok(res, () => core.ref(who.id, url.searchParams.get('id') ?? '', { only: url.searchParams.get('only') }));
+      if (p === '/api/section') return ok(res, () => core.section(who.id, url.searchParams.get('id') ?? ''));
+      if (p === '/api/trace') return ok(res, () => core.traceView());
       if (p === '/api/stream') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         res.write(`event: change\ndata: ${store.state.seq}\n\n`);
@@ -253,7 +258,12 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       const body = await readJson(req);
       if (p === '/api/messages') return need(2) && ok(res, () => core.post(who.id, { channel: body.channel, text: body.text }));
       if (p === '/api/answer') return need(2) && ok(res, () => core.answer(who.id, body.q, body.answer));
-      if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text }, who.id));
+      if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text, amends: body.amends, extends: body.extends }, who.id));
+      if (p === '/api/map') return need(2) && ok(res, () => core.mapChange(who.id, body.id, { amends: body.amends, extends: body.extends }));
+      if (p === '/api/requirement') return need(2) && ok(res, () => core.defineRequirement(who.id, body));
+      if (p === '/api/withdraw') return need(2) && ok(res, () => core.withdrawChange(who.id, body.id, body.reason));
+      // the team's change requests wait for an owner's OK: scope is theirs to settle
+      if (p === '/api/change/approve') return need(3) && ok(res, () => core.approveChange(who.id, body.id));
       if (p === '/api/links') return need(2) && ok(res, () => core.addLink(who.id, body));
       if (p === '/api/help') return need(2) && ok(res, () => core.requestHelp(who.id, body));
       if (p === '/api/tools/restaff') return need(3) && ok(res, () => (staff(paths, { log: () => {} }), { ok: true }));
@@ -346,6 +356,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       epics: s.epics,
       envs: s.envs,
       integration: core.integrationEnv(),
+      trace: traceSnapshot(),
       notices: notices.all().slice(-50),
       recent: store.events
         .slice(-60)
@@ -353,6 +364,20 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
         .filter((e) => e.text && e.by !== 'cli')
         .slice(-12)
         .reverse(),
+    };
+  }
+
+  /** What the board, tickets and inbox show about traceability; the Trace page fetches the rest. */
+  function traceSnapshot() {
+    const ix = core.index;
+    const tickets = Object.values(store.state.tickets);
+    return {
+      mode: config.traceability,
+      coverage: ix.coverage(),
+      diagnostics: ix.diagnostics().length,
+      tickets: Object.fromEntries(tickets.map((t) => [t.id, ix.trace(t.id)])),
+      unmapped: tickets.filter((t) => ['change', 'feedback'].includes(t.kind) && t.status !== 'done' && !ix.mapping(t).mapped).map((t) => t.id),
+      requirements: ix.requirements().map((r) => ({ id: r.id, title: r.title })),
     };
   }
 

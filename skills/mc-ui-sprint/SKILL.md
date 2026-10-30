@@ -12,7 +12,7 @@ This is the part of the process where the human is present. Keep every message s
    - real screens in the app's stack, running locally, on hard-coded fake data and a mock API client
    - add the feedback widget in development only: `<script src="http://127.0.0.1:4317/widget.js" defer></script>` (Next.js: in the root layout behind `process.env.NODE_ENV === 'development'`; Expo web: in `app/+html.tsx`)
    - use the integration ports (`npx madcompany env integration`) so HQ's Preview shows it
-3. **Show it.** Tell the human to open HQ → Preview (or the app URL, or Expo Go on their phone). They click **Comment** on any element; each comment becomes a feedback ticket. Fix them in rounds and take screenshots after each round (`mc_attach` to the feedback tickets).
+3. **Show it.** Tell the human to open HQ → Preview (or the app URL, or Expo Go on their phone). They click **Comment** on any element; each comment becomes a feedback ticket. Map each one to the story or UX requirement of its screen (`mc_map_change`, `extends`, or `amends` if it changes what was agreed) before it's fixed. Fix them in rounds and take screenshots after each round (`mc_attach` to the feedback tickets).
 4. **Sign-off.** When the human approves:
    - log it: `mc_decide` titled `UI signed off: <release or epic>`, with links to the screenshots
    - record the session: run `/mc-minutes` (kind `ui-sprint`), so what the human asked for is in HQ → Library → Meetings

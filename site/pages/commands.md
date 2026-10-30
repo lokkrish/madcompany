@@ -25,6 +25,8 @@ description: Every madcompany command: the terminal CLI, the Claude Code skills,
 | `snapshot` | Commit HQ's logs, facts and design docs, and nothing else |
 | `env <agent\|integration>` | Ports and database for an agent or the integration app |
 | `refs check\|fix` | Find, or link, bare references like "FR12" |
+| `ref <ID>` | Everything linked to an ID: tickets, change requests, decisions, questions, notes, discussion |
+| `trace [--strict]` | How much work and discussion maps to requirements, and what to fix. `--strict` exits non-zero for CI |
 | `anchor <files…>`, `ids` | Add anchors to requirement IDs; rebuild the reference registry |
 | `demo [dir]` | A sample project mid-way through a UI-MVP build |
 
@@ -39,6 +41,7 @@ description: Every madcompany command: the terminal CLI, the Claude Code skills,
 | `/mc-plan-epic` | Spec-driven: import BMad stories and split them into tickets |
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract from them |
 | `/mc-start` | Start the workday; your session becomes the lead and keeps the team busy |
+| `/mc-check` | Check new stories and change requests against what's agreed; route each contradiction to the PM or architect |
 | `/mc-minutes` | Save the key points, decisions and actions of the current conversation to HQ |
 | `/mc-end-day`, `/mc-stop` | End the day with handoffs, or stop immediately |
 
@@ -69,9 +72,10 @@ From BMad Method's current skill list. If a name differs in your version, `/bmad
 | Human help | Everything only you can do, with steps and key checks |
 | Tools | MCP servers, plugins and skills: who uses what, what agents may do without you, suggestions, recent calls |
 | Decisions | What the team decided without you, and why |
+| Trace | Coverage, what to fix, and every requirement with its tickets and change requests; a page per ID with everything linked to it |
 | Team | Agents by department with their models and memory; hiring; the people who use HQ |
 | Preview | Your running app at phone, tablet and desktop widths; comment on any element |
 
 ## The agents' tools
 
-Agents talk to HQ through an MCP server. The main tools: `mc_claim`, `mc_block` (park with a checkpoint), `mc_submit`, `mc_review`, `mc_ask`, `mc_decide`, `mc_design_write`, `mc_human_help`, `mc_tools` (which MCP servers and plugin skills are theirs), `mc_memory_write`, `mc_handoff`. The lead also has `mc_release`, `mc_create_ticket`, `mc_escalate`, `mc_ready_for_review` and `mc_wait`, which waits for events without using any Claude usage.
+Agents talk to HQ through an MCP server. The main tools: `mc_claim`, `mc_block` (park with a checkpoint), `mc_submit`, `mc_review`, `mc_ask`, `mc_decide`, `mc_design_write`, `mc_human_help`, `mc_tools` (which MCP servers and plugin skills are theirs), `mc_ref` and `mc_section` (look an ID up in the [project index](traceability.html) instead of reading files), `mc_note`, `mc_conflict` (raise a contradiction to the PM or architect), `mc_memory_write`, `mc_handoff`. The lead also has `mc_release`, `mc_create_ticket`, `mc_escalate`, `mc_map_change`, `mc_requirement`, `mc_change`, `mc_withdraw_change` and `mc_check` (with the PM), `mc_trace`, `mc_ready_for_review` and `mc_wait`, which waits for events without using any Claude usage.
