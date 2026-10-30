@@ -33,7 +33,12 @@ export function buildMcpServer({ core, notices, registry, version }) {
 
   // --- everyone ---
   tool('mc_status', 'Team, workday and ticket overview. Includes "control" if the workday is ending or stopped.', { as }, ({ as }) => core.status(as));
-  tool('mc_ticket', 'Full details of one ticket: body, refs, checkpoint, work log, reviews, commits, thread, and its git branch (for reviews).', { as, id }, ({ as, id }) => core.ticketInfo(as, id));
+  tool(
+    'mc_ticket',
+    'Full details of one ticket: body, refs, checkpoint, work log, reviews, commits, thread, its git branch (for reviews) and its design docs (read them at their file in the main checkout; they are not on the branch).',
+    { as, id },
+    ({ as, id }) => core.ticketInfo(as, id),
+  );
   tool('mc_next', 'Ready tickets for you: ones assigned to you, then unassigned ones matching your domain.', { as }, ({ as }) => core.next(as));
   tool(
     'mc_claim',
@@ -98,8 +103,8 @@ export function buildMcpServer({ core, notices, registry, version }) {
   );
   tool(
     'mc_design_write',
-    'Create or update a design doc under docs/design/<area>/ (sketches, API contract, schema). List who uses it as consumers; they must approve it.',
-    { as, path: z.string(), content: z.string(), consumers: list('Team ids that depend on this doc') },
+    'Create or update a design doc under docs/design/<area>/ (sketches, API contract, schema). HQ saves it in the main checkout, not your worktree or branch. List who uses it as consumers; they must approve it.',
+    { as, path: z.string(), content: z.string(), consumers: list('Team ids that depend on this doc'), ticket: z.string().optional().describe('The ticket it is for; defaults to your ticket in progress') },
     ({ as, ...f }) => core.designWrite(as, f),
   );
   tool('mc_design_approve', 'Approve a design doc you depend on.', { as, path: z.string() }, ({ as, path }) => core.designApprove(as, path));

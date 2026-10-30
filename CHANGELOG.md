@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Design docs have one home: the main checkout. `mc_design_write` links each doc to the writer's ticket in progress (or the `ticket` it names; the `design.write` event gains a `ticket` field). `mc_claim` and `mc_ticket` give each doc's `file` in the main checkout, `mc_ticket` lists the docs written for or mentioned in the ticket, and `mc_submit` refuses a branch that carries its own copy of one. The agent protocol tells reviewers to read design docs there, not on the branch.
+
 ## 0.1.0 (2026-09-25)
 
 First version.

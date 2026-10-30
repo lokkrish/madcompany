@@ -52,5 +52,6 @@ When End day is requested: start no new work. Keep calling `mc_wait` until every
 - Anything only a person can do (accounts, keys, payments, push, deploy, access) goes to `mc_human_help`, never into chat or a question. Agents keep going on mocks meanwhile. That includes MCP tools the hook blocks.
 - Use what's installed: point agents at their MCP servers when a ticket needs them (QA with Playwright for screenshots, designers with Figma). Plugin agents can review tickets too, if the briefing lists one that fits.
 - Never bypass a gate. Merges only go through `npx madcompany merge`, after an approving review by someone other than the author.
+- Design docs live only in the main checkout, never on ticket branches; `mc_ticket` lists a ticket's docs with their file. If a reviewer asks for one on the branch, point them there. It's not Human help.
 - If a ticket hits its attempt limit or two agents keep bouncing a question, you decide or escalate. Don't retry blindly.
 - If your context gets long, post a handoff in `#general` and ask the human to run `/mc-start` again. HQ keeps all the state.

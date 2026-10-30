@@ -395,22 +395,37 @@ export function createCore({ store, config, paths }) {
       git: gitPlan(t),
       env: env(as),
       facts: s().facts.map((f) => `${f.id}: ${f.text}`),
-      designs: Object.values(s().designs).map((d) => ({ path: d.path, owner: d.owner, status: d.status })),
+      designs: Object.values(s().designs).map((d) => ({ path: d.path, file: path.join(paths.root, d.path), owner: d.owner, status: d.status })),
       unread: inboxFor(as).length,
     };
   }
 
-  /** Everything about one ticket, including its git branch, so a reviewer can check it out. */
+  /** Everything about one ticket, including its git branch and design docs, so a reviewer can check it. */
   function ticketInfo(as, id) {
     actor(as, { allowHuman: true, allowCli: true });
     const t = ticket(id);
     const branch = `mc/${t.id.toLowerCase()}`;
+    const thread = s().messages.filter((m) => m.channel === `ticket:${t.id}`);
     return {
       ...t,
       activity: t.activity.slice(-15),
-      git: { branch, base: epicBranch(t), review: `git switch --detach ${branch} && git diff ${epicBranch(t)}...${branch}`, note: 'Run in your own worktree. Never check out the branch itself.' },
-      thread: s().messages.filter((m) => m.channel === `ticket:${t.id}`).slice(-10).map((m) => ({ by: m.by, text: m.text })),
+      git: {
+        branch,
+        base: epicBranch(t),
+        review: `git switch --detach ${branch} && git diff ${epicBranch(t)}...${branch}`,
+        note: `Run in your own worktree. Never check out the branch itself. Design docs are not on the branch: they live in the main checkout (${paths.design}), so read them at designs[].file.`,
+      },
+      designs: ticketDesigns(t, thread),
+      thread: thread.slice(-10).map((m) => ({ by: m.by, text: m.text })),
     };
+  }
+
+  /** Design docs written for a ticket or mentioned in it, with their one copy in the main checkout. */
+  function ticketDesigns(t, thread = []) {
+    const text = [t.body, ...t.refs, ...t.worklog.map((w) => w.text), ...thread.map((m) => m.text)].join('\n');
+    return Object.values(s().designs)
+      .filter((d) => d.tickets?.includes(t.id) || text.includes(d.path))
+      .map((d) => ({ path: d.path, file: path.join(paths.root, d.path), owner: d.owner, status: d.status, version: d.version, consumers: d.consumers, approvals: d.approvals }));
   }
 
   function isGitRepo() {
@@ -428,6 +443,11 @@ export function createCore({ store, config, paths }) {
   function newCommits(t) {
     const r = spawnSync('git', ['rev-list', '--count', `${baseRef(t)}..mc/${t.id.toLowerCase()}`], { cwd: paths.root, encoding: 'utf8' });
     return r.status === 0 ? Number(r.stdout.trim()) : 0;
+  }
+  /** Design docs HQ keeps that the ticket branch changes too: a second copy that conflicts when it ships. */
+  function designCopies(t) {
+    const r = spawnSync('git', ['diff', '--name-only', `${baseRef(t)}...mc/${t.id.toLowerCase()}`, '--', 'docs/design'], { cwd: paths.root, encoding: 'utf8' });
+    return r.status === 0 ? r.stdout.split('\n').filter((p) => s().designs[p]) : [];
   }
 
   /**
@@ -496,6 +516,12 @@ export function createCore({ store, config, paths }) {
       const { branch, save } = gitPlan(t);
       if (!branchExists(branch)) throw new McError(`Branch ${branch} doesn't exist yet. Commit your work and run: ${save}`);
       if (newCommits(t) === 0) throw new McError(`${branch} has no commits beyond ${baseRef(t)}. Your work is probably on another branch: commit it and run \`git branch -f ${branch} HEAD\`, then submit again.`);
+      const copies = designCopies(t);
+      if (copies.length) {
+        throw new McError(
+          `${branch} has its own copy of ${copies.join(', ')}. Design docs live only in the main checkout (mc_design_write puts them there, and reviewers read them there), so take the copy off your branch: git checkout --no-overlay ${baseRef(t)} -- ${copies.join(' ')} && git commit -qm "${t.id}: design docs live in the main checkout"; git branch -f ${branch} HEAD`,
+        );
+      }
     }
     if (t.ui && !t.attachments.some((a) => a.kind === 'screenshot')) {
       throw new McError(`${t.id} is a UI ticket: attach at least one screenshot with mc_attach before review.`);
@@ -668,15 +694,28 @@ export function createCore({ store, config, paths }) {
     if (doc?.status === 'frozen' && as !== lead) throw new McError(`${rel} is frozen. Ask the lead to unfreeze it.`);
     const consumers = (f.consumers ?? doc?.consumers ?? []).filter((c) => c !== as);
     for (const c of consumers) if (!isMember(c)) throw new McError(`Unknown consumer "${c}".`);
+    const forTicket = designTicket(as, f.ticket);
+    // one copy, in the main checkout: HQ, the Library and every worktree read the same file
     const full = path.join(paths.root, rel);
     ensureDir(path.dirname(full));
     fs.writeFileSync(full, String(f.content ?? ''));
     const wasAgreed = doc && doc.status !== 'draft';
-    store.append('design.write', as, { path: rel, consumers });
+    store.append('design.write', as, { path: rel, consumers, ticket: forTicket });
     if (consumers.length) {
       post(as, { channel: 'contracts', text: `${wasAgreed ? 'Changed' : 'Draft'}: ${rel} (v${s().designs[rel].version}). Please review and approve: ${consumers.map((c) => '@' + c).join(' ')}` });
     }
-    return { ok: true, design: s().designs[rel] };
+    return {
+      ok: true,
+      design: s().designs[rel],
+      file: full,
+      note: `Saved in the main checkout, not your worktree. Reviewers${forTicket ? ` of ${forTicket}` : ''} find it with mc_ticket. Don't copy it into your worktree or commit it on your branch.`,
+    };
+  }
+  /** The ticket a design doc is written for: the one given, else the writer's only ticket in progress. */
+  function designTicket(as, id) {
+    if (id) return ticket(id).id;
+    const mine = Object.values(s().tickets).filter((t) => t.assignee === as && t.status === 'in_progress');
+    return mine.length === 1 ? mine[0].id : null;
   }
   function designApprove(as, p) {
     actor(as);

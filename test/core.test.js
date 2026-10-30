@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync, execSync } from 'node:child_process';
 import { makeCore } from './helpers.js';
 import { Store } from '../src/hq/store.js';
 import { parseTeam } from '../src/config.js';
@@ -147,6 +149,49 @@ test('design docs: owner-only edits, agreed once every consumer approves, change
   assert.equal(again.design.status, 'draft');
   assert.equal(again.design.version, 2);
   assert.ok(core.read('lena').messages.some((m) => /Changed: docs\/design\/payments\/api.md/.test(m.text)));
+});
+
+test('design docs live in the main checkout, not on the ticket branch, and the reviewer finds them there', () => {
+  const { core, root } = makeCore({ git: true });
+  const g = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
+  g(root, 'add', '-A');
+  g(root, 'commit', '-qm', 'setup');
+  core.startDay('lead');
+  core.createTicket('lead', { title: 'Assign tasks' });
+  core.createTicket('lead', { title: 'Assign screen', body: 'Build against docs/design/tasks/assign.md' });
+  core.claim('arjun', 'APP-1');
+  const doc = 'docs/design/tasks/assign.md';
+  const res = core.designWrite('arjun', { path: doc, content: '# Assign API', consumers: ['lena'] });
+  assert.equal(res.file, path.join(root, doc));
+  assert.deepEqual(res.design.tickets, ['APP-1'], 'linked to the writer\'s ticket in progress');
+  const pkg = core.claim('arjun', 'APP-1'); // resuming
+  assert.equal(pkg.designs[0].file, path.join(root, doc));
+
+  // the developer works in a worktree of their own; a copy of the doc committed there is refused
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-wt-')), 'arjun');
+  g(root, 'worktree', 'add', '-q', '--detach', wt, 'main');
+  assert.ok(!fs.existsSync(path.join(wt, doc)), 'the design doc is not in the worktree');
+  fs.writeFileSync(path.join(wt, 'assign.js'), 'export {}\n');
+  fs.mkdirSync(path.join(wt, 'docs/design/tasks'), { recursive: true });
+  fs.copyFileSync(path.join(root, doc), path.join(wt, doc));
+  execSync(pkg.git.save.replace('<what changed>', 'assign tasks'), { cwd: wt });
+  const submit = () => core.submit('arjun', 'APP-1', { summary: 'Assign API', checks: { test: 'pass' } });
+  let fix;
+  assert.throws(submit, (e) => {
+    fix = e.message.match(/off your branch: (.*)$/)?.[1];
+    return /own copy of docs\/design\/tasks\/assign\.md/.test(e.message);
+  });
+  execSync(fix, { cwd: wt });
+  assert.equal(g(root, 'diff', '--name-only', 'main...mc/app-1'), 'assign.js');
+  submit();
+
+  // the reviewer gets the doc's file in the main checkout from mc_ticket, for this ticket and one that mentions it
+  const info = core.ticketInfo('qa', 'APP-1');
+  assert.match(info.git.note, /not on the branch/);
+  assert.deepEqual(info.designs.map((d) => d.path), [doc]);
+  assert.equal(fs.readFileSync(info.designs[0].file, 'utf8'), '# Assign API');
+  assert.deepEqual(core.ticketInfo('qa', 'APP-2').designs.map((d) => d.file), [path.join(root, doc)]);
+  assert.throws(() => core.designWrite('arjun', { path: doc, content: 'x', ticket: 'APP-9' }), /No ticket APP-9/);
 });
 
 test('memory has a size limit that forces compaction', () => {

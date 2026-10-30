@@ -119,8 +119,8 @@ export async function createDemo(dir, { log = console.log } = {}) {
     content: '# Sessions API\n\nCovers [FR1](../../../_bmad-output/planning-artifacts/prd.md#fr1).\n\n```mermaid\nsequenceDiagram\n  App->>API: POST /sessions {email, password}\n  API-->>App: 201 {token}\n```\n\n| Method | Path | Body | Returns |\n|---|---|---|---|\n| POST | /users | email, password | 201 user |\n| POST | /sessions | email, password | 201 token |\n',
   });
   core.designApprove('lena', 'docs/design/auth/sessions.md');
-  demoCommit(root, 'mc/tt-4', 'docs/design/auth/.keep');
-  core.submit('arjun', 'TT-4', { summary: 'Sessions contract agreed: docs/design/auth/sessions.md', checks: { lint: 'pass', test: 'n/a' } });
+  demoCommit(root, 'mc/tt-4', 'api/mock/sessions.ts');
+  core.submit('arjun', 'TT-4', { summary: 'Sessions contract agreed: docs/design/auth/sessions.md. Mock adapter in api/mock/sessions.ts', checks: { lint: 'pass', test: 'n/a' } });
   core.review('lead', 'TT-4', { verdict: 'approve', notes: 'Contract is clear.' });
   core.markMerged('cli', 'TT-4', { sha: 'a1b2c3d', commits: ['a1b2c3d docs: sessions contract'] });
   core.decide('arjun', { title: 'JWT in secure storage', decision: 'Store the session token with expo-secure-store', why: 'Tokens must not sit in AsyncStorage (plain text)', alternatives: 'AsyncStorage, cookies', ticket: 'TT-4' });

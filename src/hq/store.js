@@ -224,6 +224,7 @@ export function applyEvent(s, ev) {
         owner: old?.owner ?? ev.by,
         status: 'draft',
         consumers: d.consumers ?? old?.consumers ?? [],
+        tickets: [...new Set([...(old?.tickets ?? []), ...(d.ticket ? [d.ticket] : [])])],
         approvals: [],
         version: (old?.version ?? 0) + 1,
         updated: ev.ts,
