@@ -166,9 +166,10 @@ export function applyEvent(s, ev) {
       break;
     case 'ticket.claim':
       if (t) {
+        // resuming a parked ticket isn't a new try: waiting on an answer, an approval or Human help is no failure
+        if (t.status !== 'blocked') t.attempts += 1;
         t.status = 'in_progress';
         t.assignee = ev.by;
-        t.attempts += 1;
         t.blockedBy = [];
       }
       break;
@@ -372,9 +373,6 @@ export function describeEvent(ev) {
     case 'help.cancel': return `cancelled ${d.id}`;
     case 'requirement.add': return `added requirement ${d.id}: ${clip(d.title)}`;
     case 'requirement.amend': return `amended ${d.id}${d.change ? ` (${d.change})` : ''}: ${clip(d.text)}`;
-    case 'consistency.check':
-      s.checks.push({ ids: d.ids ?? [], verdict: d.verdict, note: d.note ?? '', by: ev.by, ts: ev.ts, seq: ev.seq });
-      break;
     case 'consistency.check': return `checked ${(d.ids ?? []).join(', ')} for conflicts: ${d.verdict}`;
     case 'note.add': return `noted on ${(d.about ?? []).join(', ')}: ${clip(d.text)}`;
     default: return null;
