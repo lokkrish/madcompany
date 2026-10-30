@@ -316,6 +316,7 @@ function cardHtml(t) {
     t.ui && '<span class="tag ui">UI</span>',
     t.kind !== 'task' && `<span class="tag warn">${esc(t.kind)}</span>`,
     t.blockedBy.length && `<span class="tag warn">⛔ ${esc(t.blockedBy.join(', '))}</span>`,
+    t.withdrawn && '<span class="tag">withdrawn</span>',
   ].filter(Boolean);
   return `<a class="tcard" href="#/ticket/${esc(t.id)}"><div class="row"><span class="id">${esc(t.id)}</span><span class="grow"></span>${t.assignee ? `${avatar(t.assignee)}` : ''}</div><div>${esc(t.title)}</div><div class="meta">${tags.join('')}</div></a>`;
 }
@@ -332,7 +333,8 @@ function ticketView(r) {
   const traced = S.trace?.tickets?.[t.id] ?? [];
   const unmapped = (S.trace?.unmapped ?? []).includes(t.id);
   return `
-  <div class="top"><div class="grow"><div class="sub"><a href="#/board">Board</a> / ${esc(t.id)}</div><h1>${esc(t.title)}</h1></div>${pill(t.status, STATUS_LABEL[t.status])}</div>
+  <div class="top"><div class="grow"><div class="sub"><a href="#/board">Board</a> / ${esc(t.id)}</div><h1>${esc(t.title)}</h1></div>${t.withdrawn ? pill('draft', 'Withdrawn') : pill(t.status, STATUS_LABEL[t.status])}</div>
+  ${t.withdrawn ? `<div class="callout" style="margin-bottom:14px">Withdrawn by ${esc(nameOf(t.withdrawn.by))}, ${clock(t.withdrawn.ts)}: ${linkify(t.withdrawn.reason)}</div>` : ''}
   <div class="grid g2">
     <div class="card stack">
       <dl class="kv">
@@ -348,6 +350,7 @@ function ticketView(r) {
         <dt>Traces to</dt><dd>${traced.map((x) => refLink(x)).join(', ') || (t.kind === 'chore' ? '<span class="sub">a chore: no requirement</span>' : '<span class="tag warn">no requirement</span>')} · <a href="${refHref(t.id)}">everything linked</a></dd>
         <dt>Attempts</dt><dd>${t.attempts}</dd>
       </dl>
+      ${['change', 'feedback'].includes(t.kind) && t.status === 'todo' && !t.withdrawn && can('member') ? `<form class="row" data-form="withdraw" data-id="${esc(t.id)}" style="flex-wrap:wrap"><input name="reason" placeholder="Why it's no longer wanted" style="flex:1" aria-label="Reason"><button class="danger" type="submit">Withdraw this change</button></form>` : ''}
       ${unmapped && can('member') ? `<form class="callout stack" data-form="map" data-id="${esc(t.id)}"><div><b>Not mapped yet.</b> Which requirements does this ${t.kind === 'change' ? 'change' : 'feedback'} amend or extend? Nobody starts it until it's mapped.</div><div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends, e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends, e.g. Epic 2" style="flex:1" aria-label="Extends"><button class="primary" type="submit">Map it</button></div>${reqDatalist()}</form>` : ''}
       ${cp}
       ${t.body ? `<div class="prose">${linkify(t.body)}</div>` : ''}
@@ -446,7 +449,7 @@ function tracePage() {
           const talk = [r.decisions && `${r.decisions} decision${r.decisions > 1 ? 's' : ''}`, r.questions && `${r.questions} question${r.questions > 1 ? 's' : ''}`, r.discussion && `${r.discussion} message${r.discussion > 1 ? 's' : ''}`, r.notes && `${r.notes} note${r.notes > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
           return `<tr id="x-${esc(r.id)}">
           <td style="white-space:nowrap"><b>${refLink(r.id)}</b>${r.ledger ? ' <span class="tag">HQ</span>' : ''}</td>
-          <td>${esc(r.title)}${r.amended_by ? `<div class="sub">Now: ${linkify(r.text)} <span class="tag warn">amended by ${esc(r.amended_by)}</span></div>` : ''}${r.parent ? `<div class="sub">in ${refLink(r.parent)}</div>` : ''}</td>
+          <td>${esc(r.title)}${r.status === 'proposed' ? ' <span class="tag warn">proposed</span>' : ''}${r.amended_by ? `<div class="sub">Now: ${linkify(r.text)} <span class="tag warn">amended by ${esc(r.amended_by)}</span></div>` : ''}${r.proposed ? `<div class="sub">Proposed: ${linkify(r.proposed.text)} <span class="tag">${esc(r.proposed.change)} · ${esc(STATUS_LABEL[r.proposed.change_status] ?? r.proposed.change_status)}</span></div>` : ''}${r.parent ? `<div class="sub">in ${refLink(r.parent)}</div>` : ''}</td>
           <td>${pill(cls, label)}</td>
           <td><div class="meta" style="display:flex;flex-wrap:wrap;gap:4px">${r.tickets.map((x) => `<a class="tag" href="#/ticket/${esc(x.id)}" title="${esc(STATUS_LABEL[x.status])}">${esc(x.id)}</a>`).join('')}${r.changes.map((x) => `<a class="tag warn" href="${refHref(x.id)}">${esc(x.how)} by ${esc(x.id)}</a>`).join('')}</div></td>
           <td class="sub">${talk}</td></tr>`;
@@ -494,7 +497,7 @@ function refPage(r) {
       const item = (x) =>
         x.text
           ? `<div class="qitem"><b>${esc(nameOf(x.by))}</b> <span class="sub">in <a href="#/chat/${encodeURIComponent(x.in)}">${esc(channelLabel(x.in))}</a></span>${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}<div>${linkify(x.text)}</div></div>`
-          : `<div class="qitem">${refLink(x.id)} ${esc(x.title ?? '')} ${statusPill(x.status)}${x.kind ? ` <span class="tag">${esc(x.kind)}</span>` : ''}${x.by ? ` <span class="sub">· ${esc(nameOf(x.by))}</span>` : ''}${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}</div>`;
+          : `<div class="qitem">${refLink(x.id)} ${esc(x.title ?? '')} ${statusPill(x.status)}${x.kind ? ` <span class="tag">${esc(x.kind)}</span>` : ''}${x.by ? ` <span class="sub">· ${esc(nameOf(x.by))}</span>` : ''}${x.via ? ` <span class="sub">· via ${refLink(x.via)}</span>` : ''}${x.superseded_by ? ` <span class="tag">superseded by ${esc(x.superseded_by)}</span>` : ''}${x.before_change ? ` <span class="tag warn">before ${esc(x.before_change)}</span>` : ''}</div>`;
       const skip = new Set(['traces_to', 'diagnostics']);
       const groups = Object.entries(c).filter(([k, v]) => Array.isArray(v) && !skip.has(k) && v.length);
       const native = nativeHref(c);
@@ -506,6 +509,7 @@ function refPage(r) {
       <div class="card stack">
         ${c.text ? `<div class="prose" style="font-size:15px">${linkify(c.text)}</div>` : ''}
         ${c.amended_by ? `<div><span class="tag warn">amended by ${esc(c.amended_by)}</span> <span class="sub">The original wording is in its definition.</span></div>` : ''}
+        ${c.proposed ? `<div class="callout"><b>Proposed by ${refLink(c.proposed.change)}</b> (${esc(STATUS_LABEL[c.proposed.change_status] ?? c.proposed.change_status)}): ${linkify(c.proposed.text)}<div class="sub">It becomes the requirement when ${esc(c.proposed.change)} is done; it's dropped if ${esc(c.proposed.change)} is withdrawn.</div></div>` : ''}
         ${c.traces_to ? `<div><span class="sub">Traces to</span> ${c.traces_to.map((x) => refLink(x.id)).join(', ') || '<span class="tag warn">no requirement</span>'}</div>` : ''}
         <div class="row" style="flex-wrap:wrap">${native ? `<a href="${esc(native)}">Open ${c.defined ? esc(c.defined) : 'it'}</a>` : ''}<button data-section="${esc(c.id)}">Show the definition</button></div>
         <div id="section-text"></div>
@@ -517,7 +521,7 @@ function refPage(r) {
         const box = document.getElementById('section-text');
         if (box.innerHTML) return (box.innerHTML = '');
         const sec = await api(`/api/section?id=${encodeURIComponent(e.target.dataset.section)}`);
-        box.innerHTML = `<div class="card prose" style="background:var(--panel-2)">${linkify(sec.text ?? '')}</div>${(sec.amendments ?? []).map((a) => `<div class="callout">Amended by ${refLink(a.change)} (${esc(a.date)}, ${esc(a.by)}): ${linkify(a.text)}</div>`).join('')}`;
+        box.innerHTML = `<div class="card prose" style="background:var(--panel-2)">${linkify(sec.text ?? '')}</div>${(sec.amendments ?? []).map((a) => `<div class="callout">${a.state === 'in effect' ? 'Amended' : a.state === 'proposed' ? 'Proposed' : 'Withdrawn'}${a.change ? ` by ${refLink(a.change)}` : ''} (${esc(a.date)}, ${esc(a.by)}): ${linkify(a.text)}</div>`).join('')}`;
       });
       $main.querySelectorAll('[data-more]').forEach((b) =>
         b.addEventListener('click', async () => {
@@ -963,6 +967,13 @@ function wire(r) {
       await api('/api/change', body);
       f.reset();
     });
+  });
+  $main.querySelector('form[data-form="withdraw"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const reason = f.reason.value.trim();
+    if (!reason) return alert('Say why it is withdrawn.');
+    if (confirm(`Withdraw ${f.dataset.id}? Its untouched tickets go with it and the wording it proposed is dropped.`)) act(() => api('/api/withdraw', { id: f.dataset.id, reason }));
   });
   $main.querySelector('form[data-form="map"]')?.addEventListener('submit', (e) => {
     e.preventDefault();

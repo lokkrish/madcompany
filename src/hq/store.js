@@ -146,7 +146,12 @@ export function applyEvent(s, ev) {
       if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs', 'kind']) if (k in d.fields) t[k] = d.fields[k];
       break;
     case 'ticket.map':
-      if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: ev.by, mappedAt: ev.ts, mappedSeq: ev.seq });
+      // the first mapping is when the change started to count: "before the change" means before that
+      if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: t.mappedBy ?? ev.by, mappedAt: t.mappedAt ?? ev.ts, mappedSeq: t.mappedSeq ?? ev.seq });
+      break;
+    // a change request (or a ticket split from one) that won't be built: closed, and its amendments drop
+    case 'ticket.withdraw':
+      if (t) Object.assign(t, { status: 'done', blockedBy: [], withdrawn: { by: ev.by, ts: ev.ts, reason: d.reason ?? '' } });
       break;
     case 'ticket.assign':
       if (t) t.assignee = d.agent;
@@ -205,6 +210,7 @@ export function applyEvent(s, ev) {
         ticket: d.ticket ?? null,
         status: 'open',
         ts: ev.ts,
+        seq: ev.seq,
         trail: [ev.by, d.to],
       };
       break;
@@ -228,7 +234,7 @@ export function applyEvent(s, ev) {
 
     case 'fact.add':
       s.counters.fact = Math.max(s.counters.fact, num(d.id));
-      s.facts.push({ id: d.id, text: d.text, source: d.source ?? null, by: ev.by, ts: ev.ts });
+      s.facts.push({ id: d.id, text: d.text, source: d.source ?? null, by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
 
     case 'requirement.add':
@@ -239,7 +245,7 @@ export function applyEvent(s, ev) {
       break;
     case 'note.add':
       s.counters.note = Math.max(s.counters.note ?? 0, num(d.id));
-      s.notes.push({ about: [], scope: 'story', ...d, by: ev.by, ts: ev.ts });
+      s.notes.push({ about: [], scope: 'story', ...d, by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
 
     case 'design.write': {
@@ -304,6 +310,7 @@ export function summarize(ev) {
   switch (ev.type) {
     case 'ticket.create': return `created (${d.kind ?? 'task'})`;
     case 'ticket.update': return `updated ${Object.keys(d.fields ?? {}).join(', ')}`;
+    case 'ticket.withdraw': return `withdrawn${d.reason ? `: ${d.reason}` : ''}`;
     case 'ticket.map': return `mapped: ${[d.amends?.length ? `amends ${d.amends.join(', ')}` : '', d.extends?.length ? `extends ${d.extends.join(', ')}` : ''].filter(Boolean).join('; ') || 'nothing'}`;
     case 'ticket.assign': return `assigned to ${d.agent}`;
     case 'ticket.claim': return 'started work';

@@ -249,8 +249,14 @@ export function buildMcpServer({ core, notices, registry, version }) {
     ({ as, id, ...f }) => core.mapChange(as, id, f),
   );
   tool(
+    'mc_withdraw_change',
+    'Lead or PM: withdraw a change request nobody has started (the human said no, or it is no longer wanted). Its untouched tickets go with it; the wording it proposed is dropped.',
+    { as, id, reason: z.string() },
+    ({ as, id, reason }) => core.withdrawChange(as, id, reason),
+  );
+  tool(
     'mc_requirement',
-    'Lead or PM: add a requirement (from the brief, MVP scope or a change request; gets the next FR/NFR/UXR number), or amend one (pass id) with the change request behind it. Written to .madcompany/log/requirements.md; the PRD is not edited.',
+    'Lead or PM: add a requirement (from the brief, MVP scope or a change request; gets the next FR/NFR/UXR number), or amend one (pass id) with the change request behind it. A change\'s wording is proposed until that change is done. Written to .madcompany/log/requirements.md; the PRD is not edited.',
     {
       as,
       id: z.string().optional().describe('Existing requirement to amend, e.g. FR12'),

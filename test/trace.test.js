@@ -166,20 +166,95 @@ test('change requests: mapped to what they amend or extend before work starts, w
   diags = core.traceSummary().diagnostics;
   assert.ok(!diags.some((d) => d.startsWith('APP-1 was done')), 'a decision on both clears it');
 
-  // the new wording becomes what everyone reads; the PRD stays as written
+  // the new wording is proposed until the change is built; the PRD stays as written
   assert.throws(() => core.defineRequirement('lead', { id: 'FR2', text: 'At most one assignee.' }), /needs the change request behind it/);
-  core.defineRequirement('lead', { id: 'FR2', text: 'A task has at most one assignee.', change: chg });
-  const fr2 = core.ref('lead', 'FR2');
-  assert.equal(fr2.text, 'A task has at most one assignee.');
-  assert.equal(fr2.amended_by, chg);
+  assert.equal(core.defineRequirement('lead', { id: 'FR2', text: 'A task has at most one assignee.', change: chg }).state, 'proposed');
+  let fr2 = core.ref('lead', 'FR2');
+  assert.equal(fr2.text, 'A task has exactly one assignee. The assignee shows on the card.', 'what holds until the change is built');
+  assert.deepEqual(fr2.proposed, { text: 'A task has at most one assignee.', change: chg, change_status: 'todo' });
   assert.deepEqual(fr2['amended by'].map((x) => x.id), [chg]);
   assert.match(core.section('lead', 'FR2').text, /exactly one assignee/);
-  assert.equal(core.section('lead', 'FR2').amendments[0].text, 'A task has at most one assignee.');
+  assert.equal(core.section('lead', 'FR2').amendments[0].state, 'proposed');
+  assert.match(core.index.contextFor('APP-2').context.requirements.find((r) => r.id === 'FR2').proposed.note, /Not in effect until APP-4 is done/);
 
-  // work split from the change traces through it
+  // work split from the change traces through it, builds the new wording, and makes it hold when merged
   const part = core.createTicket('lead', { title: 'Unassign button', refs: [chg] }).ticket.id;
   assert.deepEqual(core.index.trace(part), ['FR2', 'Epic 1']);
   assert.ok(!core.index.impact(chg).affected.tickets.some((t) => t.id === part), 'its own tickets are not "affected"');
+  const target = core.claim('arjun', part).context.requirements.find((r) => r.id === 'FR2');
+  assert.match(target.proposed.note, /Your ticket builds this wording/);
+  finish(core, part);
+  assert.equal(core.ticket(chg).status, 'done', 'a change split into tickets is done when they all are');
+  fr2 = core.ref('lead', 'FR2');
+  assert.equal(fr2.text, 'A task has at most one assignee.');
+  assert.equal(fr2.amended_by, chg);
+  assert.equal(fr2.proposed, undefined);
+});
+
+test('a change nobody started can be withdrawn: its tickets go, its wording and requirements drop', () => {
+  const { core, notices } = project();
+  core.createTicket('lead', { title: 'Assign API', refs: ['FR2'] });
+  const busy = core.change({ text: 'Colour-code assignees', extends: ['FR2'] }, 'you').ticket.id;
+  const busyPart = core.createTicket('lead', { title: 'Colours', refs: [busy] }).ticket.id;
+  core.claim('arjun', busyPart);
+  assert.throws(() => core.withdrawChange('lead', busy, 'not now'), /APP-3 \(in_progress\) already started on it/);
+
+  const chg = core.change({ text: 'Several assignees', amends: ['FR2'] }, 'you').ticket.id;
+  core.defineRequirement('lead', { id: 'FR2', text: 'Up to 3 assignees.', change: chg });
+  const added = core.defineRequirement('lead', { title: 'Assignee limit', text: 'At most 3.', extends: ['FR2'], change: chg }).id;
+  const part = core.createTicket('lead', { title: 'Multi-assign', refs: [chg] }).ticket.id;
+  const waiting = core.createTicket('lead', { title: 'Avatars', refs: ['FR2'], deps: [part] }).ticket.id;
+  assert.equal(core.ref('lead', 'FR2').proposed.change, chg);
+  assert.equal(core.ref('lead', added).status, 'proposed');
+  assert.throws(() => core.withdrawChange('arjun', chg, 'no'), /Only the lead/);
+  assert.throws(() => core.withdrawChange('lead', chg, ' '), /Say why/);
+  assert.throws(() => core.withdrawChange('lead', 'APP-1', 'x'), /only change requests and feedback/);
+  notices.take();
+  const res = core.withdrawChange('you', chg, 'Out of scope for the MVP');
+  assert.deepEqual(res.withdrawn, [chg, part]);
+  assert.match(res.line, /wording it proposed for FR2 is dropped\. FR3 no longer applies\./);
+  assert.ok(core.ticket(chg).withdrawn && core.ticket(chg).status === 'done');
+  assert.equal(core.ref('lead', 'FR2').proposed, undefined, 'the proposed wording is gone');
+  assert.equal(core.index.isRequirement(added), false, 'FR3 no longer counts as a requirement');
+  assert.equal(core.section('lead', 'FR2').amendments[0].state, 'withdrawn');
+  assert.ok(notices.take().some((n) => n.kind === 'ready' && n.ticket === waiting), 'work waiting on it can go ahead');
+  assert.throws(() => core.claim('arjun', chg), /is done/);
+  assert.throws(() => core.withdrawChange('lead', chg, 'again'), /already withdrawn/);
+});
+
+test('what was written, decided or answered before a change is flagged until someone checks it', () => {
+  const { core } = project();
+  core.createTicket('lead', { title: 'Assign API', refs: ['Story 1.1'] });
+  core.claim('arjun', 'APP-1');
+  const old = core.decide('arjun', { title: 'Reject empty', decision: 'assign("") throws', why: 'see FR2', refs: ['FR2'] }).id;
+  core.decide('arjun', { title: 'Use UUIDs', decision: 'uuid v7', why: 'sortable', ticket: 'APP-1' });
+  core.ask('arjun', { to: 'lead', question: 'Can a task have two assignees?', refs: ['FR2'] });
+  core.escalate('lead', { q: 'Q-1', options: ['No', 'Yes'] });
+  core.answer('you', 'Q-1', 'No');
+  core.note('arjun', { about: ['FR2'], text: 'An empty assignee is a 400' });
+  const chg = core.change({ text: 'Allow unassigning', amends: ['FR2'] }, 'you').ticket.id;
+
+  let diags = core.traceSummary().diagnostics;
+  assert.ok(diags.some((d) => d.startsWith(`Story 1.1 covers FR2, which ${chg} amends, and still says what it said before`)), diags.join('\n'));
+  assert.ok(diags.some((d) => d.startsWith(`${old} was decided on FR2 before ${chg} amended FR2`)));
+  assert.ok(diags.some((d) => d.startsWith(`F-1 (an answer from the human) was given before ${chg} amended FR2`)));
+  assert.ok(!diags.some((d) => d.startsWith('DEC-2')), "a decision about the ticket alone isn't about FR2's wording");
+  const card = core.ref('lead', 'FR2');
+  assert.equal(card.decisions.find((d) => d.id === old).before_change, chg);
+  assert.equal(card.notes[0].before_change, chg);
+  const ctx = core.index.contextFor('APP-1').context.requirements.find((r) => r.id === 'FR2');
+  assert.equal(ctx.decisions.find((d) => d.id === old).before_change, chg);
+  assert.match(ctx.facts[0], new RegExp(`given before ${chg} changed this`));
+
+  // reword the story, supersede the decision, confirm the answer: all settled
+  core.defineRequirement('lead', { id: 'Story 1.1', text: 'Assigning sets the assignee; null clears it.', change: chg });
+  const newer = core.decide('lead', { title: 'Null clears', decision: 'assign(id, null) clears the assignee', why: chg, refs: ['FR2'], supersedes: old }).id;
+  core.decide('lead', { title: 'F-1 holds', decision: 'Still one assignee at most', why: 'unassigning adds no assignees', refs: ['F-1', chg] });
+  diags = core.traceSummary().diagnostics;
+  assert.ok(!diags.some((d) => /Story 1\.1 covers|DEC-1 was decided|F-1 \(an answer/.test(d)), diags.join('\n'));
+  const after = core.index.contextFor('APP-1').context.requirements.find((r) => r.id === 'FR2');
+  assert.ok(!after.decisions.some((d) => d.id === old), 'a superseded decision leaves the context');
+  assert.equal(core.ref('lead', 'FR2').decisions.find((d) => d.id === old).superseded_by, newer);
 });
 
 test('a change can be mapped when raised, and new requirements get the next number', () => {
@@ -235,8 +310,10 @@ test('claiming a ticket brings its requirements as they stand, and only the fact
   const pkg = core.claim('lena', 'APP-1');
   const reqs = Object.fromEntries(pkg.context.requirements.map((r) => [r.id, r]));
   assert.deepEqual(Object.keys(reqs), ['Story 1.1', 'FR2']);
-  assert.equal(reqs.FR2.text, 'At most one assignee.');
-  assert.equal(reqs.FR2.amended_by, chg);
+  assert.equal(reqs.FR2.text, 'A task has exactly one assignee. The assignee shows on the card.');
+  assert.equal(reqs.FR2.proposed.text, 'At most one assignee.');
+  assert.match(reqs.FR2.proposed.note, new RegExp(`Not in effect until ${chg} is done`));
+  assert.deepEqual(reqs.FR2.facts, [`Assign to people outside the team? → No (given before ${chg} changed this: check it)`]);
   assert.match(reqs['Story 1.1'].notes[0].text, /must be a team member/);
   assert.deepEqual(pkg.facts, ['F-2: Assign to people outside the team? → No'], 'the sign-up fact stays out');
   assert.match(pkg.facts_elsewhere, /1 more/);
@@ -274,7 +351,7 @@ test('HQ: the index over MCP and the API, and the requirements log', async () =>
     assert.deepEqual(state.trace.tickets['APP-1'], ['FR2']);
     assert.deepEqual(state.trace.unmapped, []);
     const trace = await (await fetch(`${base}/api/trace`)).json();
-    assert.equal(trace.requirements.find((r) => r.id === 'FR2').amended_by, 'APP-2');
+    assert.equal(trace.requirements.find((r) => r.id === 'FR2').proposed.change, 'APP-2');
     assert.equal((await (await fetch(`${base}/api/ref?id=nope-1`)).json()).error.startsWith('Nothing is registered'), true);
     hq.views.flush();
     assert.match(fs.readFileSync(path.join(ctx.paths.log, 'requirements.md'), 'utf8'), /\*\*FR2\*\*.*At most one assignee/);

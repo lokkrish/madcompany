@@ -79,6 +79,10 @@ export function createNotices(core) {
           for (const u of readyAfter(t.id)) push('ready', `${u.id} is ready now that ${t.id} is done${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });
         }
         break;
+      case 'ticket.withdraw':
+        if (ev.by !== lead) push('change', `${nameOf(ev.by)} withdrew ${d.id}: ${d.reason ?? ''}`, { ticket: d.id });
+        for (const u of readyAfter(d.id)) push('ready', `${u.id} is ready now that ${d.id} is withdrawn${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });
+        break;
       case 'ticket.review':
         if (d.verdict === 'approve') push('merge', `${d.id} approved by ${ev.by}. Merge it: npx madcompany merge ${d.id}`, { ticket: d.id });
         else push('changes', `${d.id}: changes requested by ${ev.by}. Restart ${t?.assignee} on it.`, { ticket: d.id, agent: t?.assignee });

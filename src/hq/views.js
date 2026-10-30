@@ -79,18 +79,23 @@ export function renderHumanHelp(state) {
 }
 
 /** Requirements defined in HQ and amendments to any requirement, each with the change behind it. */
-export function renderRequirements(state) {
-  const reqs = Object.values(state.requirements ?? {});
-  const amendments = state.amendments ?? [];
-  const out = ['# Requirements from HQ', '', 'Requirements the team defined (from the brief, the MVP scope or a change request) and amendments to existing ones. The PRD is never edited; where a requirement was amended, the latest amendment is what holds.'];
+export function renderRequirements(st) {
+  const reqs = Object.values(st.requirements ?? {});
+  const amendments = st.amendments ?? [];
+  const out = ['# Requirements from HQ', '', 'Requirements the team defined (from the brief, the MVP scope or a change request) and amendments to existing ones. The PRD is never edited. An amendment is proposed until the change behind it is done; then the latest one holds.'];
+  // proposed until the change behind it is done; dropped if that change is withdrawn
+  const state = (change) => {
+    const c = change ? st.tickets[change] : null;
+    return !c ? '' : c.withdrawn ? ' · **Withdrawn**' : c.status !== 'done' ? ` · **Proposed** until ${change} is done` : '';
+  };
   for (const r of reqs) {
     out.push('', `## <a id="${r.id.toLowerCase()}"></a>${r.id}: ${r.title}`, '');
-    out.push(`- **Kind:** ${r.kind} · **Added by:** ${r.by}, ${day(r.ts)}${r.change ? ` · **Change:** [${r.change}](board.md#${r.change.toLowerCase()})` : ''}${r.extends?.length ? ` · **Extends:** ${r.extends.join(', ')}` : ''}${r.source ? ` · **Source:** ${r.source}` : ''}`);
+    out.push(`- **Kind:** ${r.kind} · **Added by:** ${r.by}, ${day(r.ts)}${r.change ? ` · **Change:** [${r.change}](board.md#${r.change.toLowerCase()})` : ''}${r.extends?.length ? ` · **Extends:** ${r.extends.join(', ')}` : ''}${r.source ? ` · **Source:** ${r.source}` : ''}${state(r.change)}`);
     out.push('', r.text);
   }
   if (amendments.length) {
     out.push('', '## Amendments', '');
-    for (const a of amendments) out.push(`- **${a.id}**, ${day(a.ts)} by ${a.by}${a.change ? ` for [${a.change}](board.md#${a.change.toLowerCase()})` : ''}: ${esc(a.text)}`);
+    for (const a of amendments) out.push(`- **${a.id}**, ${day(a.ts)} by ${a.by}${a.change ? ` for [${a.change}](board.md#${a.change.toLowerCase()})` : ''}${state(a.change)}: ${esc(a.text)}`);
   }
   return out.join('\n') + '\n';
 }

@@ -285,12 +285,12 @@ async function main() {
       try {
         const card = await c.call('ref', 'cli', args.join(' '));
         if (opts.json) return console.log(JSON.stringify(card, null, 2));
-        console.log(`${card.id} · ${card.kind}${card.status ? ` · ${card.status}` : ''}\n${card.title}${card.text ? `\n${card.text}` : ''}${card.amended_by ? ` (amended by ${card.amended_by})` : ''}${card.defined ? `\nDefined in ${card.defined}` : ''}`);
+        console.log(`${card.id} · ${card.kind}${card.status ? ` · ${card.status}` : ''}\n${card.title}${card.text ? `\n${card.text}` : ''}${card.amended_by ? ` (amended by ${card.amended_by})` : ''}${card.proposed ? `\nProposed by ${card.proposed.change} (${card.proposed.change_status}): ${card.proposed.text}` : ''}${card.defined ? `\nDefined in ${card.defined}` : ''}`);
         if (card.traces_to) console.log(`Traces to: ${card.traces_to.map((x) => x.id).join(', ') || 'no requirement'}`);
         for (const [name, list] of Object.entries(card)) {
           if (!Array.isArray(list) || !list.length || ['traces_to', 'diagnostics'].includes(name)) continue;
           console.log(`\n${name}:`);
-          for (const x of list) console.log(`  ${x.id}${x.title ? `  ${x.title}` : ''}${x.status ? ` (${x.status})` : ''}${x.via ? `  via ${x.via}` : ''}`);
+          for (const x of list) console.log(`  ${x.id}${x.title ? `  ${x.title}` : ''}${x.status ? ` (${x.status})` : ''}${x.via ? `  via ${x.via}` : ''}${x.superseded_by ? `  [superseded by ${x.superseded_by}]` : ''}${x.before_change ? `  [before ${x.before_change}]` : ''}`);
         }
         if (card.discussion) console.log(`\ndiscussion: ${card.discussion.messages} message(s) in ${Object.keys(card.discussion.channels).join(', ')}`);
         if (card.diagnostics) console.log(`\nTo fix:\n${card.diagnostics.map((d) => `  ${d}`).join('\n')}`);
@@ -308,7 +308,7 @@ async function main() {
       const pct = (x) => (x.total ? `${Math.round((100 * x.traced) / x.total)}%` : 'n/a');
       const cv = t.coverage;
       console.log(`Traceability (${t.mode}): ${cv.requirements.with_tickets}/${cv.requirements.total} requirements have tickets (${cv.requirements.done} done) · tickets ${pct(cv.tickets)} · decisions ${pct(cv.decisions)} · questions ${pct(cv.questions)} · discussion ${pct(cv.discussion)}`);
-      for (const r of t.requirements) console.log(`  ${r.id.padEnd(10)} ${r.state.padEnd(8)} ${r.tickets.map((x) => x.id).join(' ') || '-'}${r.changes.length ? `  [${r.changes.map((x) => `${x.how} by ${x.id}`).join(', ')}]` : ''}`);
+      for (const r of t.requirements) console.log(`  ${r.id.padEnd(10)} ${r.state.padEnd(8)} ${r.tickets.map((x) => x.id).join(' ') || '-'}${r.changes.length ? `  [${r.changes.map((x) => `${x.how} by ${x.id}`).join(', ')}]` : ''}${r.proposed ? `  (proposed by ${r.proposed.change}, ${r.proposed.change_status})` : ''}`);
       if (t.diagnostics.length) console.log(`\nTo fix (${t.diagnostics.length}):\n${t.diagnostics.map((d) => `  ${d}`).join('\n')}`);
       else console.log('\nNothing to fix.');
       if (opts.strict && t.diagnostics.length) process.exitCode = 1;

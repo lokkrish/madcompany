@@ -36,7 +36,9 @@ Each refusal tells the agent how to fix it. `warn` turns refusals into warnings;
 
 Every change request names the requirements it **amends** (changes what they say) or **extends** (builds on). You can fill that in on the Inbox form; otherwise the lead maps it. Nobody can start an unmapped change.
 
-Mapping posts the **impact** in the change's thread: the tickets, designs, stories and open questions on what it amends. The new wording is recorded in `.madcompany/log/requirements.md`; the PRD stays as written. From then on, every agent that starts work on that requirement gets the amended wording.
+Mapping posts the **impact** in the change's thread: the tickets, designs, stories and open questions on what it amends. The new wording is recorded in `.madcompany/log/requirements.md`; the PRD stays as written. It's **proposed** until the change is built and merged: agents see the current wording next to the proposal, and only the ticket building the change builds to it. A change nobody has started can be **withdrawn**, which drops its wording.
+
+After a change, anything written before it about the same requirement is flagged: stories that still say the old thing, decisions made on it and your earlier answers. The lead rewords, supersedes or confirms each one.
 
 ## What to fix
 

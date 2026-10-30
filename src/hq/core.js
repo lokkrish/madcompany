@@ -611,8 +611,18 @@ export function createCore({ store, config, paths }) {
     if (why) throw new McError(why);
     if (f.commits?.length) store.append('ticket.commit', as, { id: t.id, commits: f.commits });
     store.append('ticket.status', as, { id: t.id, status: 'done', reason: f.sha ? `merged ${f.sha}` : 'merged' });
+    // a change request split into tickets is done when they all are (its amendments then hold)
+    for (const r of t.refs) {
+      const c = s().tickets[String(r).toUpperCase()];
+      if (!c || !['change', 'feedback'].includes(c.kind) || c.status !== 'todo') continue;
+      const parts = partsOf(c.id);
+      if (parts.every((x) => x.status === 'done')) store.append('ticket.status', 'cli', { id: c.id, status: 'done', reason: `all its tickets are done (${parts.map((x) => x.id).join(', ')})` });
+    }
     return { ok: true, nowReady: Object.values(s().tickets).filter(isReady).map((x) => x.id) };
   }
+
+  /** Tickets split from a change request: their refs name it. */
+  const partsOf = (id) => Object.values(s().tickets).filter((x) => x.refs.some((r) => String(r).toUpperCase() === id));
 
   function reopen(as, id, reason) {
     leadOnly(as, 'reopen tickets', { allowCli: true });
@@ -1183,6 +1193,30 @@ export function createCore({ store, config, paths }) {
     return { ok: true, ...imp, ...(epic ? { epic } : {}), next: next + unplaced };
   }
   /**
+   * Withdraw a change request nobody has started (you said no, or it's no
+   * longer wanted). Its untouched tickets go with it, the wording it proposed
+   * is dropped and requirements it added no longer apply.
+   */
+  function withdrawChange(as, id, reason) {
+    if (!canPlan(as)) throw new McError('Only the lead, the product manager or a person withdraws a change request.');
+    const t = ticket(id);
+    if (!['change', 'feedback'].includes(t.kind)) throw new McError(`${t.id} is a ${t.kind} ticket; only change requests and feedback are withdrawn.`);
+    if (t.withdrawn) throw new McError(`${t.id} is already withdrawn.`);
+    if (t.status !== 'todo') throw new McError(`${t.id} is ${t.status}. Only a change nobody has started can be withdrawn; to undo built work, raise a change that reverses it.`);
+    if (!String(reason ?? '').trim()) throw new McError('Say why it is withdrawn.');
+    const parts = partsOf(t.id).filter((x) => !x.withdrawn);
+    const started = parts.filter((x) => x.status !== 'todo');
+    if (started.length) throw new McError(`${started.map((x) => `${x.id} (${x.status})`).join(', ')} already started on it. Stop that work first; anything merged needs a change that reverses it.`);
+    for (const p of parts) store.append('ticket.withdraw', as, { id: p.id, reason: `part of ${t.id}: ${reason}` });
+    store.append('ticket.withdraw', as, { id: t.id, reason: String(reason) });
+    const dropped = s().amendments.filter((a) => a.change === t.id).map((a) => a.id);
+    const removed = Object.values(s().requirements).filter((r) => r.change === t.id).map((r) => r.id);
+    const line = `${t.id} withdrawn: ${reason}.${dropped.length ? ` The wording it proposed for ${dropped.join(', ')} is dropped.` : ''}${removed.length ? ` ${removed.join(', ')} no longer ${removed.length > 1 ? 'apply' : 'applies'}.` : ''}`;
+    post(as === 'cli' ? lead : as, { channel: `ticket:${t.id}`, text: line }, { system: true });
+    return { ok: true, withdrawn: [t.id, ...parts.map((p) => p.id)], line };
+  }
+
+  /**
    * Add a requirement (from the brief, MVP scope or a change request), or
    * amend an existing one, PRD or not, with the change request behind it.
    * Written to .madcompany/log/requirements.md; the PRD itself is never edited.
@@ -1199,7 +1233,15 @@ export function createCore({ store, config, paths }) {
       if (!chg && strictness() === 'strict') throw new McError(`Amending ${n.id} needs the change request behind it (change: "<ID>"). Raise one first (the human's, or mc_escalate).`);
       store.append('requirement.amend', as, { id: n.id, text, change: chg?.id ?? null });
       if (chg && !chg.amends.some((x) => index.keyOf(x) === n.key)) store.append('ticket.map', as, { id: chg.id, amends: [...chg.amends, n.id], extends: chg.extends });
-      return { ok: true, id: n.id, amended: true, ...(chg ? { impact: index.impact(chg.id).line } : {}) };
+      const holds = !chg || chg.status === 'done';
+      return {
+        ok: true,
+        id: n.id,
+        amended: true,
+        state: holds ? 'in effect' : 'proposed',
+        ...(holds ? {} : { note: `Proposed: agents see it next to the current wording, and it becomes ${n.id} when ${chg.id} is done.` }),
+        ...(chg ? { impact: index.impact(chg.id).line } : {}),
+      };
     }
     const kind = String(f.kind ?? 'FR').toUpperCase();
     if (!['FR', 'NFR', 'UXR'].includes(kind)) throw new McError('kind must be FR, NFR or UXR.');
@@ -1311,6 +1353,7 @@ export function createCore({ store, config, paths }) {
     feedback,
     change,
     mapChange,
+    withdrawChange,
     defineRequirement,
     note,
     ref,
