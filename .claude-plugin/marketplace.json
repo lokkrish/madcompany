@@ -11,7 +11,7 @@
       "name": "madcompany",
       "source": "./",
       "description": "A UI-first AI dev team that runs inside your Claude Code session, with a local HQ app. Compatible with BMad Method v6.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "strict": false,
       "skills": [
         "./skills/mc-setup",

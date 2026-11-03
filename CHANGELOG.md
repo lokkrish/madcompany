@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-03)
 
 - **Project index.** HQ maps every requirement, story, epic, release, ticket, change request, decision, question, fact, note, design doc, meeting and message, and the typed links between them (implements, part of, depends on, amends, extends, discussed in…), from its event log and the anchored planning docs. No model reads files to build it.
 - New agent tools: `mc_ref` (everything linked to an ID), `mc_section` (just an ID's definition), `mc_note` (what a member learned about a story or requirement), and for the lead or PM `mc_map_change`, `mc_requirement` and `mc_trace`. `mc_decide`, `mc_ask`, `mc_escalate` and `mc_minutes` take `refs`; `mc_decide` takes `supersedes`; `mc_create_ticket` and `mc_update_ticket` take `kind` (`task` or `chore`).
