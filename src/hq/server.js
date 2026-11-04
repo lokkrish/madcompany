@@ -28,7 +28,7 @@ const RAW = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.html', 
 const MIME = { '.pdf': 'application/pdf', '.htm': 'text/html; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 
 // CLI operations HQ accepts from `npx madcompany ...` (header-gated, see guard()).
-const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel', 'traceView', 'ref', 'mapChange', 'defineRequirement', 'withdrawChange']);
+const CLI_OPS = new Set(['status', 'startDay', 'requestEndDay', 'stopNow', 'endDay', 'createTicket', 'updateTicket', 'assign', 'markMerged', 'reopen', 'post', 'canMerge', 'epicBranch', 'integrationEnv', 'ticket', 'decide', 'dashboard', 'env', 'minutes', 'addLink', 'unit', 'units', 'unitBranch', 'planRelease', 'readyForReview', 'shipped', 'requestHelp', 'helpView', 'helpCancel', 'traceView', 'ref', 'mapChange', 'defineRequirement', 'withdrawChange', 'reviewView', 'screensView', 'defineScreen']);
 
 export function createHq({ paths, port = 4317, quiet = false, share = false, bind = null }) {
   const config = loadConfig(paths);
@@ -165,13 +165,13 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
 
-    if (p === '/api/feedback' && req.method === 'OPTIONS') {
+    if (['/api/feedback', '/api/feedback/review'].includes(p) && req.method === 'OPTIONS') {
       if (!guard(req, res, { widget: true, local: true })) return;
-      res.writeHead(204, { 'access-control-allow-origin': req.headers.origin ?? '*', 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type', vary: 'Origin' });
+      res.writeHead(204, { 'access-control-allow-origin': req.headers.origin ?? '*', 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type', vary: 'Origin' });
       return res.end();
     }
-    const localOnly = ['/mcp', '/api/cli', '/api/refresh-ids', '/api/feedback', '/widget.js'].includes(p);
-    if (!guard(req, res, { widget: p === '/api/feedback' || p === '/widget.js', local: localOnly })) return;
+    const localOnly = ['/mcp', '/api/cli', '/api/refresh-ids', '/api/feedback', '/api/feedback/review', '/widget.js'].includes(p);
+    if (!guard(req, res, { widget: ['/api/feedback', '/api/feedback/review', '/widget.js', '/sketch.js'].includes(p), local: localOnly })) return;
     if (p === '/api/cli' && req.headers['x-madcompany-cli'] !== '1') return deny(res, 403, 'CLI only');
 
     // the app shell and sign-in need no identity; everything with data does
@@ -207,6 +207,11 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       return;
     }
 
+    if (req.method === 'GET' && p === '/api/feedback/review') {
+      res.setHeader('access-control-allow-origin', req.headers.origin ?? '*');
+      const r = Object.values(store.state.reviews).find((x) => x.status === 'open' && x.by === 'you');
+      return json(res, 200, { review: r ? { id: r.id, comments: r.comments.filter((c) => !store.state.tickets[c]?.withdrawn).length } : null, hq: `http://127.0.0.1:${actualPort()}` });
+    }
     if (req.method === 'GET') {
       if (p === '/api/health') return json(res, 200, { ok: true, version: VERSION, project: config.project, ...(share ? { share: true } : { root: paths.root }) });
       if (p === '/api/me') return json(res, 200, { ...who, share });
@@ -227,6 +232,8 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       if (p === '/api/ref') return ok(res, () => core.ref(who.id, url.searchParams.get('id') ?? '', { only: url.searchParams.get('only') }));
       if (p === '/api/section') return ok(res, () => core.section(who.id, url.searchParams.get('id') ?? ''));
       if (p === '/api/trace') return ok(res, () => core.traceView());
+      if (p === '/api/reviews') return ok(res, () => core.reviewView(who.id, url.searchParams.get('id') || null));
+      if (p === '/api/screens') return ok(res, () => ({ screens: core.screensView() }));
       if (p === '/api/stream') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         res.write(`event: change\ndata: ${store.state.seq}\n\n`);
@@ -246,6 +253,13 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
         if (!abs || isHiddenPath(rel) || !RAW.has(ext) || !insideRoot(abs)) return json(res, 404, { error: 'Not found' });
         // mockups and SVGs run sandboxed: they can't reach HQ's API or your cookies
         const sandbox = ['.html', '.htm', '.svg'].includes(ext) ? { 'content-security-policy': 'sandbox allow-scripts allow-forms allow-popups' } : {};
+        // commenting on an HTML mockup: a picker that only tells HQ's page which element you clicked
+        if (url.searchParams.get('pick') === '1' && ['.html', '.htm'].includes(ext)) {
+          const html = fs.readFileSync(abs, 'utf8');
+          const tag = '<script src="/pick.js" defer></script>';
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...sandbox });
+          return res.end(/<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${tag}</body>`) : html + tag);
+        }
         return sendFile(res, abs, sandbox);
       }
       if (p === '/widget.js') return sendFile(res, path.join(UI_DIR, 'widget.js'), { 'access-control-allow-origin': '*' });
@@ -258,8 +272,18 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       const body = await readJson(req);
       if (p === '/api/messages') return need(2) && ok(res, () => core.post(who.id, { channel: body.channel, text: body.text }));
       if (p === '/api/answer') return need(2) && ok(res, () => core.answer(who.id, body.q, body.answer));
-      if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text, amends: body.amends, extends: body.extends }, who.id));
-      if (p === '/api/map') return need(2) && ok(res, () => core.mapChange(who.id, body.id, { amends: body.amends, extends: body.extends }));
+      if (p === '/api/change') return need(2) && ok(res, () => core.change({ text: body.text, amends: body.amends, extends: body.extends, batch: body.batch }, who.id));
+      if (p === '/api/map') return need(2) && ok(res, () => core.mapChange(who.id, body.id, { amends: body.amends, extends: body.extends, level: body.level, screen: body.screen }));
+      // comments from HQ itself: on a mockup, a screen, a sketch; batched into your review or sent now
+      if (p === '/api/comment') return need(2) && ok(res, () => core.feedback(pick(body, COMMENT_FIELDS), who.id));
+      if (p === '/api/sketch') return need(2) && ok(res, () => core.addSketch(who.id, body.id, { sketch: body.sketch, caption: body.caption }));
+      if (p === '/api/screen') return need(2) && ok(res, () => core.defineScreen(who.id, body));
+      if (p === '/api/review/open') return need(2) && ok(res, () => core.openReview(who.id, body));
+      if (p === '/api/review/submit') return need(2) && ok(res, () => core.submitReview(who.id, body.id));
+      if (p === '/api/review/move') return need(2) && ok(res, () => core.batchComment(who.id, body.ticket, body.review ?? null));
+      if (p === '/api/review/cancel') return need(2) && ok(res, () => core.cancelReview(who.id, body.id, body.reason));
+      // approving a plan changes scope: an owner's call; anyone who can comment can send it back
+      if (p === '/api/review/decide') return need(body.verdict === 'approve' ? 3 : 2) && ok(res, () => core.decideReview(who.id, body.id, { verdict: body.verdict, notes: body.notes }));
       if (p === '/api/requirement') return need(2) && ok(res, () => core.defineRequirement(who.id, body));
       if (p === '/api/withdraw') return need(2) && ok(res, () => core.withdrawChange(who.id, body.id, body.reason));
       // the team's change requests wait for an owner's OK: scope is theirs to settle
@@ -324,7 +348,7 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       }
       if (p === '/api/feedback') {
         res.setHeader('access-control-allow-origin', req.headers.origin ?? '*');
-        return ok(res, () => core.feedback(body));
+        return ok(res, () => core.feedback(pick(body, COMMENT_FIELDS)));
       }
       if (p === '/api/cli') {
         if (!CLI_OPS.has(body.op)) return json(res, 400, { error: `Unknown op ${body.op}` });
@@ -353,6 +377,8 @@ export function createHq({ paths, port = 4317, quiet = false, share = false, bin
       minutes: s.minutes,
       links: s.links,
       designs: s.designs,
+      screens: s.screens,
+      reviews: s.reviews,
       epics: s.epics,
       envs: s.envs,
       integration: core.integrationEnv(),
@@ -474,6 +500,10 @@ function sendFile(res, abs, headers = {}) {
   res.writeHead(200, { 'content-type': MIME[path.extname(abs).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', ...headers });
   fs.createReadStream(abs).pipe(res);
 }
+
+// what a comment may carry, from the widget or HQ (never who it's from: that's whoever sends it)
+const COMMENT_FIELDS = ['text', 'route', 'url', 'selector', 'snippet', 'viewport', 'level', 'batch', 'review', 'sketch', 'mockup', 'x', 'y', 'screen'];
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o?.[k] !== undefined).map((k) => [k, o[k]]));
 
 async function readJson(req) {
   const chunks = [];

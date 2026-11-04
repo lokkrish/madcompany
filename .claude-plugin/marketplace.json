@@ -21,6 +21,7 @@
         "./skills/mc-plan-epic",
         "./skills/mc-ui-sprint",
         "./skills/mc-check",
+        "./skills/mc-review-feedback",
         "./skills/mc-minutes",
         "./skills/mc-start",
         "./skills/mc-end-day",

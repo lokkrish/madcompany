@@ -42,6 +42,7 @@ description: Every madcompany command: the terminal CLI, the Claude Code skills,
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract from them |
 | `/mc-start` | Start the workday; your session becomes the lead and keeps the team busy |
 | `/mc-check` | Check new stories and change requests against what's agreed; route each contradiction to the PM or architect |
+| `/mc-review-feedback` | Plan a review you submitted: classify each comment (look, flow, feature), answer every conflict, propose one plan for your OK |
 | `/mc-minutes` | Save the key points, decisions and actions of the current conversation to HQ |
 | `/mc-end-day`, `/mc-stop` | End the day with handoffs, or stop immediately |
 

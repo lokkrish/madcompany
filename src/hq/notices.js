@@ -58,14 +58,19 @@ export function createNotices(core) {
       }
       case 'ticket.create':
         if (d.approval === 'needed') push('change', `${d.raisedBy} raised change ${d.id} (${d.title}); it waits for the human's OK in HQ → Inbox.`, { ticket: d.id });
-        if (core.isHuman(ev.by)) {
+        // a batched comment waits quietly in its review; the lead hears when the review is submitted
+        if (core.isHuman(ev.by) && !d.batch) {
           const mapped = d.amends?.length || d.extends?.length;
+          const sc = d.screen ? store.state.screens[d.screen] : null;
+          const on = sc ? ` on ${sc.id} ${sc.title}${sc.implements.length ? ` (implements ${sc.implements.join(', ')})` : ''}` : '';
           const map = mapped
             ? ` ${core.index.impact(d.id).line} Post the impact check and handle the affected tickets.`
-            : ['change', 'feedback'].includes(d.kind)
-              ? ' Map it to the requirements it amends or extends (mc_map_change); it returns the impact to post.'
-              : '';
-          push('human', `New ${d.kind} ticket ${d.id} from ${nameOf(ev.by)}: ${d.title}.${map}`, { ticket: d.id });
+            : d.kind === 'feedback'
+              ? ` Classify it with mc_map_change: level element (how it looks; the screen is enough), ux (how it works) or story (what it does), with what a ux or story change amends or extends. It returns the impact.`
+              : d.kind === 'change'
+                ? ' Map it to the requirements it amends or extends (mc_map_change); it returns the impact to post.'
+                : '';
+          push('human', `New ${d.kind} ticket ${d.id}${on} from ${nameOf(ev.by)}: ${d.title}.${map}`, { ticket: d.id });
         }
         break;
       case 'ticket.approve':
@@ -84,6 +89,22 @@ export function createNotices(core) {
           for (const u of readyAfter(t.id)) push('ready', `${u.id} is ready now that ${t.id} is done${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });
         }
         break;
+      case 'ticket.batch':
+        if (!d.review && core.isHuman(ev.by)) push('human', `${nameOf(ev.by)} took ${d.id} out of their review: handle it now (classify it with mc_map_change).`, { ticket: d.id });
+        break;
+      case 'review.submit': {
+        const r = store.state.reviews[d.id];
+        push('review', `${nameOf(ev.by)} submitted ${d.id} (${r.comments.length} comment${r.comments.length === 1 ? '' : 's'}: ${r.comments.join(', ')}). Plan them together: run /mc-review-feedback ${d.id}.`, { review: d.id });
+        break;
+      }
+      case 'review.decide':
+        if (d.verdict === 'revise') push('review', `${ev.by === 'cli' ? 'HQ' : nameOf(ev.by)} sent the plan for ${d.id} back: ${d.notes}. Update it (mc_feedback_review shows what no longer holds), then mc_feedback_plan again.`, { review: d.id });
+        break;
+      case 'review.applied': {
+        const ready = Object.values(store.state.tickets).filter((x) => core.isReady(x) && (store.state.reviews[d.id]?.comments.includes(x.id) || x.refs.some((r) => store.state.reviews[d.id]?.comments.includes(String(r).toUpperCase()))));
+        push('review', `The human approved the plan for ${d.id}; it's applied${d.amended?.length ? `: reworded ${d.amended.join(', ')}` : ''}${d.tickets?.length ? `; new tickets ${d.tickets.join(', ')}` : ''}${d.reopened?.length ? `; reopened ${d.reopened.join(', ')}` : ''}. Ready now: ${ready.map((x) => `${x.id}${x.assignee ? ` (${x.assignee})` : ''}`).join(', ') || 'nothing yet'}. Start the work.`, { review: d.id });
+        break;
+      }
       case 'ticket.withdraw':
         if (ev.by !== lead) push('change', `${nameOf(ev.by)} withdrew ${d.id}: ${d.reason ?? ''}`, { ticket: d.id });
         for (const u of readyAfter(d.id)) push('ready', `${u.id} is ready now that ${d.id} is withdrawn${u.assignee ? ` (assignee ${u.assignee})` : ''}.`, { ticket: u.id, agent: u.assignee });

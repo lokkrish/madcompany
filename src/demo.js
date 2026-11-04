@@ -212,6 +212,38 @@ export async function createDemo(dir, { log = console.log } = {}) {
   core.addLink('you', { title: 'Tiny Tasks: clickable prototype (Claude artifact)', url: 'https://claude.ai/code/artifact/0b7d5c2e-demo-prototype', note: 'The prototype from the ideation session' });
   core.addLink('maya', { title: 'Tiny Tasks: design system (Figma)', url: 'https://www.figma.com/design/demo/tiny-tasks-design-system' });
   core.post('maya', { channel: 'general', text: 'Competitor teardown I used for the Story 2.1 empty state: https://claude.ai/code/artifact/5f1e9a44-demo-teardown' });
+  // screens, and a review of your comments: one on how a button looks, a sketch on the mockup, a new feature
+  fs.mkdirSync(path.join(root, 'docs', 'design', 'tasks'), { recursive: true });
+  wireframePng(path.join(root, 'docs', 'design', 'tasks', 'list.png'), { rows: 4, accent: [130, 80, 223] });
+  core.defineScreen('lead', { title: 'Sign up', route: '/sign-up', implements: ['Story 1.1'], mockups: ['_bmad-output/planning-artifacts/ux-design-directions.html'] });
+  core.defineScreen('lead', { title: 'Task list', route: '/tasks', implements: ['Story 2.1'], mockups: ['docs/design/tasks/list.png'] });
+  core.updateTicket('lead', 'TT-3', { refs: ['Story 2.1', 'SCR-2'] });
+  const c1 = core.feedback({ text: 'Make the New task button bigger and reachable with my thumb', route: '/tasks', selector: '#new-task', snippet: 'New task', batch: true, level: 'element' }).ticket.id;
+  const sketch = `data:image/png;base64,${fs.readFileSync(path.join(root, 'docs', 'design', 'tasks', 'list.png')).toString('base64')}`;
+  const c2 = core.feedback({ text: 'Group the list into Today and Later, like this', mockup: 'docs/design/tasks/list.png', x: 50, y: 30, batch: true, sketch }).ticket.id;
+  const c3 = core.feedback({ text: 'Let me snooze a task to tomorrow', route: '/tasks', batch: true, level: 'story' }).ticket.id;
+  core.submitReview('you', 'REV-1');
+  core.mapChange('lead', c1, { level: 'element' });
+  core.mapChange('lead', c2, { level: 'ux', amends: ['Story 2.1'] });
+  core.mapChange('lead', c3, { level: 'story', extends: ['FR2'] });
+  core.planReview('lead', 'REV-1', {
+    summary: 'The task list groups tasks into Today and Later (Story 2.1 reworded), the New task button moves to the bottom and grows, and tasks can be snoozed to tomorrow (new FR4).',
+    items: [
+      { comment: c1, action: 'fix', assignee: 'lena' },
+      { comment: c2, action: 'fix', assignee: 'lena' },
+      { comment: c3, action: 'split' },
+    ],
+    amendments: [{ id: 'Story 2.1', text: 'As a user, I see my tasks grouped into Today and Later, so I know what to do first.', comments: [c2] }],
+    requirements: [{ kind: 'FR', title: 'Snooze a task', text: 'Users can snooze a task to tomorrow; it moves to Later.', extends: ['FR2'], comment: c3 }],
+    tickets: [
+      { title: 'Snooze endpoint: PATCH /tasks/:id {snoozedUntil}', comment: c3, refs: ['FR2'], assignee: 'arjun' },
+      { title: 'Snooze action on a task', comment: c3, refs: ['SCR-2'], ui: true, assignee: 'lena' },
+    ],
+    resolutions: {
+      'rework:TT-3': 'TT-3 is still being built; lena adds the grouping as part of it (TT-7).',
+      'pending:TT-5': 'TT-5 (optional due date) goes first; snoozing sets a due date, so it works either way.',
+    },
+  });
   core.memoryWrite('arjun', 'work', '# arjun: work memory\n\n- Owns docs/design/auth/sessions.md (agreed v1)\n- Sessions: bcrypt + JWT, token in expo-secure-store (DEC-1)\n');
   fs.rmSync(shots, { recursive: true, force: true });
   await c.close();
