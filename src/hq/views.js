@@ -109,6 +109,41 @@ export function renderNotes(state) {
   return out.join('\n') + '\n';
 }
 
+/** The app's screens: route, what each implements, mockups and the comments on it. */
+export function renderScreens(st) {
+  const out = ['# Screens', '', 'The screens of the app and the stories and UX requirements each one implements. Comments on a screen land on it; UI tickets that build it name it in their refs.'];
+  for (const sc of Object.values(st.screens ?? {})) {
+    const comments = Object.values(st.tickets).filter((t) => t.screen === sc.id && !t.withdrawn);
+    out.push('', `## <a id="${sc.id.toLowerCase()}"></a>${sc.id}: ${sc.title}`, '');
+    out.push(`- **Route:** ${sc.route ? `\`${sc.route}\`` : 'none'} · **Implements:** ${sc.implements.join(', ') || 'nothing yet'}`);
+    if (sc.mockups.length) out.push(`- **Mockups:** ${sc.mockups.map((m) => `[${m}](../../${m})`).join(', ')}`);
+    if (comments.length) out.push(`- **Comments:** ${comments.map((t) => `[${t.id}](board.md#${t.id.toLowerCase()})${t.level ? ` (${t.level})` : ''}${t.status === 'done' ? ' done' : ''}`).join(', ')}`);
+    if (sc.notes) out.push('', sc.notes);
+  }
+  return out.join('\n') + '\n';
+}
+
+/** Reviews: the human's batched comments, the plan for them, and what was applied. */
+export function renderReviews(st) {
+  const out = ['# Reviews', '', 'Comments gathered into one review, planned together and approved once. Newest last.'];
+  for (const r of Object.values(st.reviews ?? {})) {
+    out.push('', `## <a id="${r.id.toLowerCase()}"></a>${r.id}: ${r.title}`, '');
+    out.push(`- **Status:** ${r.status} · **By:** ${r.by}, ${day(r.ts)}${r.approvedBy ? ` · **Approved by:** ${r.approvedBy}` : ''}`);
+    out.push(`- **Comments:** ${r.comments.map((c) => `[${c}](board.md#${c.toLowerCase()})${st.tickets[c]?.withdrawn ? ' (withdrawn)' : ''}`).join(', ') || 'none'}`);
+    if (r.plan) {
+      out.push('', `**Plan** (${r.plan.by}, ${day(r.plan.ts)}): ${r.plan.summary}`, '');
+      for (const it of r.plan.items) out.push(`- ${it.comment}: ${it.action}${it.into ? ` into ${it.into}` : ''}${it.reason ? ` — ${esc(it.reason)}` : ''}${it.assignee ? ` (${it.assignee})` : ''}`);
+      for (const a of r.plan.amendments) out.push(`- Reword **${a.id}** (${a.comments.join(', ')}): ${esc(a.text)}`);
+      for (const q of r.plan.requirements) out.push(`- New ${q.kind} (${q.comment}): ${esc(q.title)} — ${esc(q.text)}`);
+      for (const t of r.plan.tickets) out.push(`- New ticket (${t.comment}): ${esc(t.title)}`);
+      for (const x of r.plan.reopen) out.push(`- Reopen ${x.ticket}: ${esc(x.reason)}`);
+      for (const [k, v] of Object.entries(r.plan.resolutions)) out.push(`- ${k}: ${esc(v)}`);
+    }
+    for (const h of r.history) out.push(`- ${day(h.ts)} ${h.by}: ${h.what}${h.notes ? ` — ${esc(h.notes)}` : ''}`);
+  }
+  return out.join('\n') + '\n';
+}
+
 export function renderChannel(channel, messages) {
   const out = [`# #${channel}`, ''];
   for (const m of messages) out.push(`**${m.by}** · ${day(m.ts)}  `, m.text, '');
@@ -130,6 +165,8 @@ export function createViewWriter(core, { delayMs = 400, onWritten } = {}) {
     if (Object.keys(s.help ?? {}).length) fs.writeFileSync(path.join(paths.dir, 'human-help.md'), renderHumanHelp(s));
     if (Object.keys(s.requirements ?? {}).length || s.amendments?.length) fs.writeFileSync(path.join(paths.log, 'requirements.md'), renderRequirements(s));
     if (s.notes?.length) fs.writeFileSync(path.join(paths.log, 'notes.md'), renderNotes(s));
+    if (Object.keys(s.screens ?? {}).length) fs.writeFileSync(path.join(paths.log, 'screens.md'), renderScreens(s));
+    if (Object.keys(s.reviews ?? {}).length) fs.writeFileSync(path.join(paths.log, 'reviews.md'), renderReviews(s));
     for (const c of dirtyChannels) {
       fs.writeFileSync(path.join(paths.chat, channelFile(c)), renderChannel(c, s.messages.filter((m) => m.channel === c)));
     }

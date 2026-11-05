@@ -7,12 +7,12 @@ description: Run the UI sprint for a release or epic with the human, the one ses
 
 This is the part of the process where the human is present. Keep every message short and visual: show screens, not paragraphs.
 
-1. **Scope.** List the release's (or epic's) screens and the navigation between them in one short message, e.g. `Sign-up → Tasks (empty) → New task → Tasks (filled)`. Ask the human to confirm or adjust. This is the only planning question.
+1. **Scope.** List the release's (or epic's) screens and the navigation between them in one short message, e.g. `Sign-up → Tasks (empty) → New task → Tasks (filled)`. Ask the human to confirm or adjust. This is the only planning question. Then record each screen with `mc_screen`: its route, the stories and UX requirements it implements, and its mockups, and name it in the refs of the UI tickets that build it (`SCR-n`).
 2. **Build the prototype** (you, or the UX and frontend agents via `/mc-start`):
    - real screens in the app's stack, running locally, on hard-coded fake data and a mock API client
    - add the feedback widget in development only: `<script src="http://127.0.0.1:4317/widget.js" defer></script>` (Next.js: in the root layout behind `process.env.NODE_ENV === 'development'`; Expo web: in `app/+html.tsx`)
    - use the integration ports (`npx madcompany env integration`) so HQ's Preview shows it
-3. **Show it.** Tell the human to open HQ → Preview (or the app URL, or Expo Go on their phone). They click **Comment** on any element; each comment becomes a feedback ticket. Map each one to the story or UX requirement of its screen (`mc_map_change`, `extends`, or `amends` if it changes what was agreed) before it's fixed. Fix them in rounds and take screenshots after each round (`mc_attach` to the feedback tickets).
+3. **Show it.** Tell the human to open HQ → Preview (or the app URL, or Expo Go on their phone), or a mockup in HQ → Library. They click **Comment** on any element, click on a mockup image, or **Sketch** (capture the screen and draw on it). Each comment lands on its screen and is either sent now or added to their review. Comments sent now: classify each (`mc_map_change` with `level` element, ux or story, and for ux or story what it amends or extends) before it's fixed. A submitted review: `/mc-review-feedback`, one plan for all of it, approved by the human. Fix in rounds and take screenshots after each round (`mc_attach` to the feedback tickets).
 4. **Sign-off.** When the human approves:
    - log it: `mc_decide` titled `UI signed off: <release or epic>`, with links to the screenshots
    - record the session: run `/mc-minutes` (kind `ui-sprint`), so what the human asked for is in HQ → Library → Meetings

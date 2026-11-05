@@ -209,7 +209,7 @@ export function buildMcpServer({ core, notices, registry, version }) {
     async ({ as, seconds }) => {
       if (as !== cfg.leadId) throw new McError('Only the lead waits for notices.');
       const got = await notices.wait((seconds ?? cfg.wait_seconds) * 1000);
-      return { notices: got.map(({ kind, text, ticket, agent, q, help, unit }) => ({ kind, text, ticket, agent, q, help, unit })), workday: core.store.state.workday.state };
+      return { notices: got.map(({ kind, text, ticket, agent, q, help, unit, review }) => ({ kind, text, ticket, agent, q, help, unit, review })), workday: core.store.state.workday.state };
     },
   );
   tool(
@@ -224,7 +224,7 @@ export function buildMcpServer({ core, notices, registry, version }) {
       domain: z.string().optional(),
       deps: list('Ticket IDs that must be done first'),
       ui: z.boolean().optional().describe('True if it changes what users see (needs a screenshot)'),
-      refs: list('Requirement / story / epic IDs it implements, or the change request it is part of'),
+      refs: list('Requirement / story / epic IDs it implements, the screen it builds (SCR-n), or the change request or comment it is part of'),
       kind: z.enum(['task', 'chore']).optional().describe('chore: implements no requirement (tooling, checks, setup)'),
       assignee: z.string().optional(),
     },
@@ -258,9 +258,77 @@ export function buildMcpServer({ core, notices, registry, version }) {
   );
   tool(
     'mc_map_change',
-    'Lead or PM: map a change request (or feedback ticket) to the requirements it amends (changes what they say) or extends (builds on). Required before anyone starts it. Returns the impact: tickets, designs, stories and open questions on what it amends, and posts it in the ticket thread.',
-    { as, id, amends: list('Requirement / story / epic IDs whose meaning changes'), extends: list('Requirement / story / epic IDs it builds on') },
+    'Lead or PM: map a change request or comment before anyone starts it. For a comment, say what kind of change it is (level): "element" (how it looks on one screen: spacing, colour, copy; amends nothing, the screen is enough), "ux" (how it works: flow, navigation, interaction; amends or extends a UX requirement or story) or "story" (what it does: amends or extends a story or requirement). Returns the impact (an element change: its screen, the tickets that built it, its mockups; ux or story: every screen implementing what it amends, their tickets, stories, design docs, open questions) and posts it in the ticket thread.',
+    {
+      as,
+      id,
+      level: z.enum(['element', 'ux', 'story']).optional().describe('What kind of change a comment is (required for comments)'),
+      screen: z.string().optional().describe('The screen it is on, e.g. SCR-2, if HQ did not find it from the route'),
+      amends: list('Requirement / story / epic IDs whose meaning changes'),
+      extends: list('Requirement / story / epic IDs it builds on'),
+    },
     ({ as, id, ...f }) => core.mapChange(as, id, f),
+  );
+  tool(
+    'mc_screen',
+    'Record a screen of the app, or update one (pass id): its route (e.g. /tasks/:id), the stories and UX requirements it implements, and its mockups. Comments on that route or those mockups land on it, and UI tickets that build it say so with refs ["SCR-n"].',
+    {
+      as,
+      id: z.string().optional().describe('Existing screen to update, e.g. SCR-2'),
+      title: z.string().optional().describe('e.g. "Task list"'),
+      route: z.string().optional().describe('URL path, with :param or [param] for parts that vary'),
+      implements: list('Story / UXR / FR IDs the screen shows, e.g. ["Story 2.1", "UXR3"]'),
+      mockups: list('Mockup files in the project (png, html…), e.g. docs/design/tasks/list.png'),
+      notes: z.string().optional(),
+    },
+    ({ as, ...f }) => core.defineScreen(as, f),
+  );
+  tool('mc_screens', 'The app\'s screens: route, what each implements, its mockups, the tickets that built it and its open comments.', { as }, () => ({ screens: core.screensView() }));
+  tool(
+    'mc_comment',
+    'Lead or PM: file a comment the human made somewhere else (in chat, on a Claude artifact, in a call) so it is traced like the ones from HQ. Batch it into their open review, or send it now.',
+    {
+      as,
+      text: z.string().describe("The human's comment, in their words"),
+      source: z.string().describe('Where it came from: "chat", an artifact link…'),
+      screen: z.string().optional().describe('SCR-n, if you know it'),
+      route: z.string().optional().describe('The app route it is about'),
+      mockup: z.string().optional().describe('The mockup file it is about'),
+      level: z.enum(['element', 'ux', 'story']).optional(),
+      batch: z.boolean().optional().describe("true: add it to the human's open review instead of handling it now"),
+      sketch: z.string().optional().describe('A sketch or screenshot the human gave, as a data:image/png;base64 URL'),
+    },
+    ({ as, ...f }) => core.relayComment(as, f),
+  );
+  tool(
+    'mc_feedback_review',
+    "The human's reviews (REV-n): batched comments planned together. Without id: the list. With id: each comment (its screen, level, mapping, sketches to open), what they touch together, the checks your plan must answer, the plan and whether it still holds.",
+    { as, id: z.string().optional().describe('e.g. REV-1') },
+    ({ as, id }) => core.reviewView(as, id),
+  );
+  const item = z.object({
+    comment: z.string(),
+    action: z.enum(['fix', 'split', 'merge', 'decline']).describe('fix: the comment is the work; split: tickets below do it; merge: into another comment; decline: not done'),
+    into: z.string().optional().describe('merge: the comment it joins'),
+    reason: z.string().optional().describe('decline: why'),
+    assignee: z.string().optional().describe('fix: who does it'),
+  });
+  tool(
+    'mc_feedback_plan',
+    "Lead or PM: propose one plan for a submitted review. It must hold before the human sees it: an item per comment, new wording for everything a ux or story comment amends, tickets for split comments, reopened tickets, and an answer to every check from mc_feedback_review (in resolutions, keyed by the check's key). The human approves it in HQ, then HQ applies all of it.",
+    {
+      as,
+      id: z.string().describe('The review, e.g. REV-1'),
+      summary: z.string().describe('What changes, in a few lines the human reads first'),
+      items: z.array(item),
+      amendments: z.array(z.object({ id: z.string(), text: z.string().describe('The new wording'), comments: z.array(z.string()) })).optional(),
+      requirements: z.array(z.object({ kind: z.enum(['FR', 'NFR', 'UXR']).optional(), title: z.string(), text: z.string(), extends: list('What it builds on'), comment: z.string() })).optional(),
+      tickets: z.array(z.object({ title: z.string(), body: z.string().optional(), comment: z.string().describe('The comment it does'), refs: list('Also implements, e.g. a screen'), assignee: z.string().optional(), domain: z.string().optional(), ui: z.boolean().optional(), deps: list('Existing tickets first') })).optional(),
+      reopen: z.array(z.object({ ticket: z.string(), reason: z.string() })).optional(),
+      supersede: list('Decisions this plan replaces, e.g. DEC-3'),
+      resolutions: z.record(z.string(), z.string()).optional().describe('Check key → how the plan answers it, e.g. {"rework:APP-4": "still holds: only the copy changes"}'),
+    },
+    ({ as, id, ...plan }) => core.planReview(as, id, plan),
   );
   tool(
     'mc_withdraw_change',

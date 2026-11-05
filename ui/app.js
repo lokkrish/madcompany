@@ -107,6 +107,7 @@ async function refresh() {
   setBadge('help-badge', S.dashboard.help.open);
   setBadge('review-badge', S.dashboard.inReview.length);
   setBadge('trace-badge', S.trace?.diagnostics ?? 0);
+  setBadge('reviews-badge', Object.values(S.reviews ?? {}).filter((x) => x.status === 'proposed').length);
   document.getElementById('units-label').textContent = unitWord(true);
   const all = n + S.dashboard.help.open + S.dashboard.inReview.length;
   document.title = `${all ? `(${all}) ` : ''}${S.config.project.name} · madcompany HQ`;
@@ -145,7 +146,7 @@ function render() {
   const viewName = r.name === 'questions' || r.name === 'facts' ? 'inbox' : r.name === 'epics' ? 'releases' : r.name;
   const name = ['session', 'search', 'file'].includes(r.name) ? 'library' : r.name === 'ref' ? 'trace' : viewName; // sidebar highlight
   document.querySelectorAll('.side a').forEach((a) => a.classList.toggle('on', a.dataset.nav === name));
-  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage, tools: toolsPage, trace: tracePage, ref: refPage };
+  const views = { dashboard, chat, board, ticket: ticketView, inbox, decisions, team, preview, file: fileView, library: libraryView, session: sessionView, search: searchView, help: helpPage, releases: releasesPage, tools: toolsPage, trace: tracePage, ref: refPage, reviews: reviewsPage };
   const view = views[viewName] ?? dashboard;
   const key = location.hash;
   const keepScroll = key === lastView;
@@ -191,8 +192,10 @@ function dashboard() {
         .map((e) => `<a class="stack" href="#/releases/${esc(e.id)}" style="color:inherit;text-decoration:none"><div class="row"><b>${esc(e.id === e.title ? e.title : `${e.id} ${e.title}`)}</b>${e.status ? unitPill(e.status) : ''}<span class="grow"></span><span class="sub">${e.done}/${e.total}</span></div>${bar(e.done, e.total)}</a>`)
         .join('')
     : `<p class="empty">No ${unitWord(true).toLowerCase()} yet. In Claude Code: <code>${byRelease() ? '/mc-plan-release' : '/mc-plan-epic'}</code></p>`;
-  const waiting = d.needsYou.length + d.help.open + d.inReview.length + (d.approve?.length ?? 0);
+  const plans = (d.reviews ?? []).filter((x) => x.status === 'proposed');
+  const waiting = d.needsYou.length + d.help.open + d.inReview.length + (d.approve?.length ?? 0) + plans.length;
   const needsLines = [
+    plans.length && `<a href="#/reviews/${esc(plans[0].id)}">The plan for ${plans.map((x) => esc(x.id)).join(', ')}</a> waits for your OK`,
     d.approve?.length && `<a href="#/inbox">${d.approve.length} change${d.approve.length > 1 ? 's' : ''} the team raised</a> wait${d.approve.length > 1 ? '' : 's'} for your OK`,
     d.inReview.length && `<a href="#/releases/${esc(d.inReview[0].id)}">${d.inReview.map((u) => esc(u.id)).join(', ')} ready for your review</a>`,
     d.needsYou.length && `<a href="#/inbox">${d.needsYou.length} question${d.needsYou.length > 1 ? 's' : ''}</a>: ${esc(d.needsYou[0].question)}`,
@@ -316,6 +319,8 @@ function cardHtml(t) {
     !t.release && t.epic && `<span class="tag">${esc(t.epic)}</span>`,
     t.ui && '<span class="tag ui">UI</span>',
     t.kind !== 'task' && `<span class="tag warn">${esc(t.kind)}</span>`,
+    t.level && levelPill(t.level),
+    t.batch && S.reviews?.[t.batch] && !['applied', 'cancelled'].includes(S.reviews[t.batch].status) && `<span class="tag" title="Waits for the plan for ${esc(t.batch)}">⏸ ${esc(t.batch)}</span>`,
     t.blockedBy.length && `<span class="tag warn">⛔ ${esc(t.blockedBy.join(', '))}</span>`,
     t.withdrawn && '<span class="tag">withdrawn</span>',
   ].filter(Boolean);
@@ -347,16 +352,23 @@ function ticketView(r) {
         ${t.blockedBy.length ? `<dt>Blocked by</dt><dd>${t.blockedBy.map((x) => linkify(x)).join(', ')}</dd>` : ''}
         ${S.help.some((h) => h.tickets.includes(t.id)) ? `<dt>Human help</dt><dd>${S.help.filter((h) => h.tickets.includes(t.id)).map((h) => `<a href="#/help/${esc(h.id)}">${esc(h.id)}</a> ${pill(h.status === 'open' ? 'blocked' : 'done', h.status)}`).join(' ')}</dd>` : ''}
         <dt>Refs</dt><dd>${refLinks || '–'}</dd>
-        ${t.kind === 'change' ? `<dt>Amends</dt><dd>${(t.amends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd><dt>Extends</dt><dd>${(t.extends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd>` : ''}
+        ${['change', 'feedback'].includes(t.kind) ? `<dt>Amends</dt><dd>${(t.amends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd><dt>Extends</dt><dd>${(t.extends ?? []).map((x) => refLink(x)).join(', ') || '–'}</dd>` : ''}
+        ${t.level ? `<dt>Kind of change</dt><dd>${levelPill(t.level)} ${esc({ element: 'how it looks on its screen; nothing agreed changes', ux: 'how it works: reaches every screen implementing what it amends', story: 'what it does: amends or extends a story or requirement' }[t.level])}</dd>` : ''}
+        ${t.screen ? `<dt>Screen</dt><dd>${refLink(t.screen, `${t.screen} ${S.screens?.[t.screen]?.title ?? ''}`)}</dd>` : ''}
+        ${t.where?.mockup ? `<dt>On</dt><dd><a href="#/file/${esc(t.where.mockup)}">${esc(t.where.mockup)}</a>${t.where.x != null ? ` at ${Math.round(t.where.x)}%, ${Math.round(t.where.y)}%` : ''}</dd>` : t.where?.selector ? `<dt>Element</dt><dd><code>${esc(t.where.selector)}</code></dd>` : ''}
+        ${t.batch ? `<dt>Review</dt><dd><a href="#/reviews/${esc(t.batch)}">${esc(t.batch)}</a> ${reviewPill(S.reviews?.[t.batch]?.status)}${['open', 'submitted'].includes(S.reviews?.[t.batch]?.status) && t.status === 'todo' && can('member') ? ` <button data-review-now="${esc(t.id)}">Handle it now</button>` : ''}</dd>` : ['feedback', 'change'].includes(t.kind) && t.status === 'todo' && !t.withdrawn && can('member') && !t.mappedSeq ? `<dt>Review</dt><dd><button data-review-batch="${esc(t.id)}">Add to my review</button></dd>` : ''}
         <dt>Traces to</dt><dd>${traced.map((x) => refLink(x)).join(', ') || (t.kind === 'chore' ? '<span class="sub">a chore: no requirement</span>' : '<span class="tag warn">no requirement</span>')} · <a href="${refHref(t.id)}">everything linked</a></dd>
         <dt>Attempts</dt><dd>${t.attempts}</dd>
       </dl>
       ${['change', 'feedback'].includes(t.kind) && t.status === 'todo' && !t.withdrawn && can('member') ? `<form class="row" data-form="withdraw" data-id="${esc(t.id)}" style="flex-wrap:wrap"><input name="reason" placeholder="Why it's no longer wanted" style="flex:1" aria-label="Reason"><button class="danger" type="submit">Withdraw this change</button></form>` : ''}
-      ${unmapped && can('member') ? `<form class="callout stack" data-form="map" data-id="${esc(t.id)}"><div><b>Not mapped yet.</b> Which requirements does this ${t.kind === 'change' ? 'change' : 'feedback'} amend or extend? Nobody starts it until it's mapped.</div><div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends, e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends, e.g. Epic 2" style="flex:1" aria-label="Extends"><button class="primary" type="submit">Map it</button></div>${reqDatalist()}</form>` : ''}
+      ${unmapped && can('member') ? `<form class="callout stack" data-form="map" data-id="${esc(t.id)}"><div><b>Not mapped yet.</b> ${t.kind === 'feedback' ? 'What kind of change is it, and what does it change? A look change stays on its screen; a flow or feature change amends or extends requirements.' : 'Which requirements does this change amend or extend?'} Nobody starts it until it's mapped.</div>
+        ${t.kind === 'feedback' ? `<div class="row" style="flex-wrap:wrap"><select name="level" aria-label="Kind of change"><option value="element" ${t.level === 'element' ? 'selected' : ''}>Look (element change)</option><option value="ux" ${t.level === 'ux' ? 'selected' : ''}>Flow (UX change)</option><option value="story" ${t.level === 'story' ? 'selected' : ''}>Feature (story change)</option></select><select name="screen" aria-label="Screen"><option value="">No screen</option>${Object.values(S.screens ?? {}).map((x) => `<option value="${esc(x.id)}" ${x.id === t.screen ? 'selected' : ''}>${esc(x.id)} ${esc(x.title)}</option>`).join('')}</select></div>` : ''}
+        <div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends, e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends, e.g. Epic 2" style="flex:1" aria-label="Extends"><button class="primary" type="submit">Map it</button></div>${reqDatalist()}</form>` : ''}
       ${cp}
       ${t.body ? `<div class="prose">${linkify(t.body)}</div>` : ''}
     </div>
     <div class="stack">
+      ${sketchesOf(t).length || ['feedback', 'change'].includes(t.kind) ? `<div class="card"><h3>Sketches</h3>${sketchesOf(t).length ? `<div class="shots">${sketchesOf(t).map((x) => `<a href="${shotSrc(x.path)}" target="_blank"><img src="${shotSrc(x.path)}" alt="${esc(x.caption)}"></a>`).join('')}</div><p class="sub">Whoever works on ${esc(t.id)} is told to open these first.</p>` : '<p class="empty">None.</p>'}${can('member') && t.status !== 'done' ? `<button data-add-sketch="${esc(t.id)}">Add a sketch</button>` : ''}</div>` : ''}
       <div class="card"><h3>Screenshots</h3>${shots.length ? `<div class="shots">${shots.map((s) => `<a href="/shots/${esc(s.path.split('/').pop())}" target="_blank"><img src="/shots/${esc(s.path.split('/').pop())}" alt="${esc(s.caption)}"></a>`).join('')}</div>` : '<p class="empty">None yet.</p>'}</div>
       <div class="card"><h3>Reviews</h3>${t.reviews.map((v) => `<div>${pill(v.verdict)} ${esc(v.by)} <span class="time">${clock(v.ts)}</span> ${linkify(v.notes)}</div>`).join('') || '<p class="empty">None yet.</p>'}</div>
       <div class="card"><h3>Commits</h3>${t.commits.map((c) => `<div class="mono">${esc(c)}</div>`).join('') || '<p class="empty">None yet.</p>'}</div>
@@ -396,10 +408,11 @@ function inbox(r) {
       <div class="sub">${c.amends.length ? `Amends ${c.amends.map((x) => refLink(x)).join(', ')}` : ''}${c.amends.length && c.extends.length ? ' · ' : ''}${c.extends.length ? `Extends ${c.extends.map((x) => refLink(x)).join(', ')}` : ''}</div>
       <div class="opts" ${can('owner') ? '' : 'hidden'}><button class="rec" data-approve="${esc(c.id)}">Approve</button><button data-reject="${esc(c.id)}">Withdraw it</button></div>
     </div>`).join('')}</div>` : ''}
+  ${Object.values(S.reviews ?? {}).filter((x) => x.status === 'proposed').map((x) => `<div class="card q stack" style="margin-top:14px" id="x-${esc(x.id)}"><div class="row"><b>${esc(x.id)}</b><span class="sub">the plan for ${x.comments.length} of your comments · waits for your OK</span><span class="grow"></span><a href="#/reviews/${esc(x.id)}">Read the plan</a></div><div class="prose">${linkify(x.plan?.summary ?? '')}</div></div>`).join('')}
   <div class="card" style="margin-top:14px"><h3>Request a change</h3>
     <form class="stack" data-form="change" ${can('member') ? '' : 'hidden'}><textarea name="text" data-keep rows="2" placeholder="Describe what should change. The lead maps it to the requirements it changes and posts an impact check." aria-label="Change request"></textarea>
       <div class="row" style="flex-wrap:wrap"><input name="amends" list="req-ids" placeholder="Amends (optional), e.g. FR12" style="flex:1" aria-label="Amends"><input name="extends" list="req-ids" placeholder="Extends (optional), e.g. Epic 2" style="flex:1" aria-label="Extends"></div>${reqDatalist()}
-      <div><button class="primary" type="submit">Send to the lead</button> <a href="#/trace" class="sub">See the requirements</a></div></form>
+      <div class="row"><button class="primary" type="submit">Send to the lead</button><label class="sub row"><input type="checkbox" name="batch" ${myOpenReview() ? 'checked' : ''}> Add to my review instead</label><a href="#/trace" class="sub">See the requirements</a></div></form>
   </div>
   <div class="grid g2" style="margin-top:14px">
     <div class="card feed"><h3>Facts (your answers)</h3>${S.facts.map((f) => `<div class="item" id="x-${esc(f.id)}"><b>${esc(f.id)}</b> ${linkify(f.text)}</div>`).join('') || '<p class="empty">None yet.</p>'}</div>
@@ -730,34 +743,312 @@ function toolsPage() {
 function preview() {
   const url = S.config.preview.url ?? `http://localhost:${S.integration.ports.web}`;
   const shots = Object.values(S.tickets).flatMap((t) => t.attachments.filter((a) => a.kind === 'screenshot').map((a) => ({ ...a, ticket: t.id }))).reverse();
-  const fb = Object.values(S.tickets).filter((t) => t.kind === 'feedback').reverse();
+  const fb = Object.values(S.tickets).filter((t) => t.kind === 'feedback' && !t.withdrawn).reverse();
+  const screens = Object.values(S.screens ?? {});
+  const open = (id) => fb.filter((t) => t.screen === id && t.status !== 'done').length;
+  const screenRow = (x) => `<div class="item"><a href="${refHref(x.id)}"><b>${esc(x.id)}</b></a> ${esc(x.title)} ${x.route ? `<code>${esc(x.route)}</code>` : ''}<span class="sub">${x.implements.map((i) => refLink(i)).join(', ') || 'implements nothing yet'}${x.mockups.length ? ` · ${x.mockups.map((m) => `<a href="#/file/${esc(m)}">mockup</a>`).join(' ')}` : ''}${open(x.id) ? ` · ${open(x.id)} open comment${open(x.id) > 1 ? 's' : ''}` : ''}</span></div>`;
   return `
   <div class="top"><h1 class="grow">Preview</h1>
     <div class="devices" role="group" aria-label="Screen size"><button data-size="390">Phone</button><button data-size="820">Tablet</button><button data-size="100%">Desktop</button></div>
+    ${can('member') ? `<button data-comment='{}'>Comment</button><button data-sketch-frame="frame" data-ctx='{}' title="Capture the app as shown here and draw on it">Sketch</button>` : ''}
     <a href="${esc(url)}" target="_blank" rel="noopener">Open in a tab ↗</a>
   </div>
-  <div class="card"><iframe class="frame" id="frame" src="${esc(url)}" title="Running app"></iframe>
-    <p class="sub">To comment on any element, the app loads <code>&lt;script src="${esc(location.origin)}/widget.js" defer&gt;&lt;/script&gt;</code> in development, then use its <b>Comment</b> button. Each comment becomes a ticket.</p>
+  ${reviewBar()}
+  <div class="card" style="margin-top:14px"><iframe class="frame" id="frame" src="${esc(url)}" title="Running app" allow="display-capture"></iframe>
+    <p class="sub">To comment on a particular element, the app loads <code>&lt;script src="${esc(location.origin)}/widget.js" defer&gt;&lt;/script&gt;</code> in development, then use its <b>Comment</b> or <b>Sketch</b> button. Each comment is sent now, or added to your review to be planned with the others.</p>
   </div>
   <div class="grid g2" style="margin-top:14px">
-    <div class="card"><h3>Screenshots</h3>${shots.length ? `<div class="shots">${shots.map((s) => `<a href="#/ticket/${esc(s.ticket)}" title="${esc(s.ticket)} ${esc(s.caption)}"><img src="/shots/${esc(s.path.split('/').pop())}" alt="${esc(s.caption || s.ticket)}" loading="lazy"></a>`).join('')}</div>` : '<p class="empty">None yet.</p>'}</div>
-    <div class="card feed"><h3>Your feedback</h3>${fb.map((t) => `<div class="item">${idLink(t.id)} ${esc(t.title.replace(/^Feedback: /, ''))} ${pill(t.status, STATUS_LABEL[t.status])}</div>`).join('') || '<p class="empty">No comments yet.</p>'}</div>
+    <div class="card feed"><h3>Screens <span class="count">${screens.length}</span></h3>${screens.map(screenRow).join('') || '<p class="empty">No screens recorded yet. The team adds them with mc_screen as it builds them, so comments land on the right stories.</p>'}
+      ${can('member') ? `<details style="margin-top:8px"><summary class="sub">Add a screen</summary><form class="stack" data-form="screen" style="margin-top:6px"><input name="title" placeholder="Title, e.g. Task list" aria-label="Title" required><input name="route" placeholder="Route, e.g. /tasks/:id" aria-label="Route"><input name="implements" list="req-ids" placeholder="Implements, e.g. Story 2.1, UXR3" aria-label="Implements">${reqDatalist()}<button type="submit">Add</button></form></details>` : ''}</div>
+    <div class="card feed"><h3>Comments</h3>${fb.map((t) => `<div class="item">${idLink(t.id)} ${esc(t.title.replace(/^Feedback: /, ''))} ${levelPill(t.level)} ${t.batch ? `<a class="tag" href="#/reviews/${esc(t.batch)}">${esc(t.batch)}</a>` : ''} ${sketchesOf(t).length ? '<span class="tag" title="Has a sketch">✎</span>' : ''} ${pill(t.status, STATUS_LABEL[t.status])}</div>`).join('') || '<p class="empty">No comments yet.</p>'}</div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Screenshots</h3>${shots.length ? `<div class="shots">${shots.map((x) => `<a href="#/ticket/${esc(x.ticket)}" title="${esc(x.ticket)} ${esc(x.caption)}"><img src="${shotSrc(x.path)}" alt="${esc(x.caption || x.ticket)}" loading="lazy"></a>`).join('')}</div>` : '<p class="empty">None yet.</p>'}</div>`;
+}
+
+// ---------- comments, sketches and reviews ----------
+const KIND_CHOICES = [
+  ['', 'Not sure', 'The team works out what kind of change it is'],
+  ['element', 'Look', 'How it looks on one screen: size, spacing, colour, wording'],
+  ['ux', 'Flow', 'How it works: steps, navigation, what happens when you tap'],
+  ['story', 'Feature', 'What it does: something new, or different behaviour'],
+];
+const LEVEL_LABEL = { element: 'Look', ux: 'Flow', story: 'Feature' };
+const levelPill = (l) => (l ? `<span class="tag lvl-${esc(l)}" title="${esc({ element: 'element change', ux: 'UX change', story: 'story change' }[l])}">${esc(LEVEL_LABEL[l])}</span>` : '');
+const REVIEW_LABEL = { open: 'Collecting comments', submitted: 'Lead is planning', proposed: 'Plan waits for you', approved: 'Approved', applied: 'Applied', cancelled: 'Discarded' };
+const reviewPill = (st) => pill({ open: 'draft', submitted: 'in_progress', proposed: 'in_review', approved: 'done', applied: 'done', cancelled: 'todo' }[st] ?? 'todo', REVIEW_LABEL[st] ?? st);
+const myOpenReview = () => Object.values(S.reviews ?? {}).find((r) => r.status === 'open' && r.by === ME.id);
+const shotSrc = (p) => `/shots/${esc(String(p).split('/').pop())}`;
+const sketchesOf = (t) => t.attachments.filter((a) => a.kind === 'sketch');
+
+/** Capture part of HQ's own tab (a mockup or the app in Preview), with the dialog out of the way. */
+async function captureRect(el) {
+  const r = el?.getBoundingClientRect();
+  const dlg = document.getElementById('comment-dlg');
+  if (dlg?.open) dlg.close();
+  await new Promise((res) => setTimeout(res, 60));
+  return window.madcompanySketch.capture(r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null);
+}
+
+/**
+ * The comment form: what should change, what kind of change, an optional
+ * sketch, then add it to your review or send it now. ctx carries where it is:
+ * { mockup, x, y, selector, snippet, route, screen, sketch, base, frame }.
+ */
+function commentDialog(ctx = {}) {
+  let dlg = document.getElementById('comment-dlg');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'comment-dlg';
+    dlg.className = 'dlg';
+    document.body.appendChild(dlg);
+  }
+  let sketch = ctx.sketch ?? null;
+  const open = myOpenReview();
+  const screens = Object.values(S.screens ?? {});
+  const batchFirst = Boolean(open) || localStorage.getItem('mc-batch') === '1';
+  const where = [ctx.mockup && `Mockup <code>${esc(ctx.mockup)}</code>${ctx.x != null ? ` at ${Math.round(ctx.x)}%, ${Math.round(ctx.y)}%` : ''}`, ctx.snippet && `“${esc(ctx.snippet)}”`, ctx.selector && `<code>${esc(ctx.selector)}</code>`].filter(Boolean).join(' · ');
+  dlg.innerHTML = `<form method="dialog" class="stack" id="comment-form">
+    <h2 style="margin:0">Comment</h2>
+    ${where ? `<div class="sub">${where}</div>` : ''}
+    <textarea name="text" rows="4" placeholder="What should change?" aria-label="Your comment" required></textarea>
+    <div class="kinds" role="radiogroup" aria-label="What kind of change">${KIND_CHOICES.map(([v, l, tip], i) => `<label title="${esc(tip)}"><input type="radio" name="level" value="${v}" ${i ? '' : 'checked'}><span>${esc(l)}</span></label>`).join('')}</div>
+    ${screens.length ? `<label class="row sub">Screen <select name="screen" aria-label="Screen"><option value="">${ctx.mockup || ctx.route ? 'Find it for me' : 'Not a particular screen'}</option>${screens.map((x) => `<option value="${esc(x.id)}" ${x.id === ctx.screen ? 'selected' : ''}>${esc(x.id)} ${esc(x.title)}${x.route ? ` (${esc(x.route)})` : ''}</option>`).join('')}</select></label>` : ''}
+    <div class="row"><button type="button" data-dlg="sketch">Sketch it…</button><span id="dlg-sketch"></span></div>
+    <div class="sub">${open ? `Your review <a href="#/reviews/${esc(open.id)}">${esc(open.id)}</a> has ${open.comments.length} comment${open.comments.length === 1 ? '' : 's'}.` : 'Send it now, or add it to a review to plan several comments together.'}</div>
+    <div class="row"><button type="button" data-dlg="cancel">Cancel</button><span class="grow"></span><button type="button" data-dlg="batch" class="${batchFirst ? 'primary' : ''}" title="Keep it with your other comments; the team plans them together when you submit the review">Add to review</button><button type="button" data-dlg="now" class="${batchFirst ? '' : 'primary'}">Send now</button></div>
+  </form>`;
+  const showSketch = () => {
+    document.getElementById('dlg-sketch').innerHTML = sketch ? `<img class="thumb" src="${sketch}" alt="Your sketch"> <button type="button" data-dlg="unsketch" title="Remove the sketch">✕</button>` : '';
+    dlg.querySelector('[data-dlg="unsketch"]')?.addEventListener('click', () => {
+      sketch = null;
+      showSketch();
+    });
+  };
+  showSketch();
+  dlg.querySelector('[data-dlg="sketch"]').addEventListener('click', async () => {
+    const keep = dlg.querySelector('textarea').value;
+    const base = ctx.base ?? (ctx.frame ? await captureRect(ctx.frame) : null);
+    const png = await window.madcompanySketch.open({ base });
+    commentDialog({ ...ctx, sketch: png ?? sketch, text: keep });
+  });
+  dlg.querySelector('[data-dlg="cancel"]').addEventListener('click', () => dlg.close());
+  const send = async (batch) => {
+    const f = document.getElementById('comment-form');
+    const text = f.text.value.trim();
+    if (!text) return f.text.focus();
+    localStorage.setItem('mc-batch', batch ? '1' : '0');
+    const body = { text, batch, level: f.level.value || undefined, screen: f.screen?.value || ctx.screen || undefined, ...Object.fromEntries(['mockup', 'x', 'y', 'selector', 'snippet', 'route'].filter((k) => ctx[k] != null).map((k) => [k, ctx[k]])), ...(sketch ? { sketch } : {}) };
+    try {
+      const out = await api('/api/comment', body);
+      dlg.close();
+      await refresh();
+      flash(out.review ? `Added to ${out.review.id} (${out.review.comments} comment${out.review.comments === 1 ? '' : 's'})` : `Sent as ${out.ticket.id}`);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  dlg.querySelector('[data-dlg="batch"]').addEventListener('click', () => send(true));
+  dlg.querySelector('[data-dlg="now"]').addEventListener('click', () => send(false));
+  if (!dlg.open) dlg.showModal();
+  if (ctx.text) dlg.querySelector('textarea').value = ctx.text;
+  dlg.querySelector('textarea').focus();
+}
+function flash(msg) {
+  const t = document.createElement('div');
+  t.className = 'flash';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+/** Pins of the comments on a mockup image, where they were made. */
+function pinsFor(rel) {
+  return Object.values(S.tickets)
+    .filter((t) => t.where?.mockup === rel && t.where.x != null && !t.withdrawn)
+    .map((t) => `<a class="pin ${t.status === 'done' ? 'done' : ''}" href="#/ticket/${esc(t.id)}" style="left:${Number(t.where.x)}%;top:${Number(t.where.y)}%" title="${esc(t.id)}: ${esc(t.title.replace(/^Feedback: /, ''))}">${esc(t.id.split('-').pop())}</a>`)
+    .join('');
+}
+/** The screens a mockup belongs to. */
+const screensOfMockup = (rel) => Object.values(S.screens ?? {}).filter((x) => x.mockups.includes(rel));
+
+function reviewBar() {
+  const open = myOpenReview();
+  const waiting = Object.values(S.reviews ?? {}).filter((r) => ['submitted', 'proposed'].includes(r.status));
+  if (!can('member')) return '';
+  return `<div class="card row review-bar" style="flex-wrap:wrap">
+    ${open ? `<b>Your review <a href="#/reviews/${esc(open.id)}">${esc(open.id)}</a></b><span class="sub">${open.comments.length} comment${open.comments.length === 1 ? '' : 's'} so far. Keep commenting, then submit it: the team plans them together and you approve one plan.</span><span class="grow"></span><button class="primary" data-review-submit="${esc(open.id)}" ${open.comments.length ? '' : 'disabled'}>Submit for a plan</button>`
+      : `<span class="sub">Comments go to the team as you send them. To gather several and approve one plan for all of them, choose <b>Add to review</b> on a comment, or</span><button data-review-open>Start a review</button>`}
+    ${waiting.length ? `<span class="sub">${waiting.map((r) => `<a href="#/reviews/${esc(r.id)}">${esc(r.id)}</a> ${reviewPill(r.status)}`).join(' ')}</span>` : ''}
   </div>`;
 }
+
+function reviewsPage(r) {
+  const id = r.parts[1];
+  if (id) return reviewDetail(id.toUpperCase());
+  const list = Object.values(S.reviews ?? {}).reverse();
+  return `<div class="top"><div class="grow"><h1>Reviews</h1><div class="sub">Your comments, gathered and planned as one. You approve the plan once; HQ applies all of it.</div></div></div>
+  ${reviewBar()}
+  <div class="stack" style="margin-top:14px">${list.map((x) => `<a class="card row" href="#/reviews/${esc(x.id)}" style="color:inherit;text-decoration:none;flex-wrap:wrap"><b>${esc(x.id)}</b> ${esc(x.title)} ${reviewPill(x.status)}<span class="grow"></span><span class="sub">${x.comments.length} comment${x.comments.length === 1 ? '' : 's'} · ${esc(nameOf(x.by))} · ${clock(x.ts)}</span></a>`).join('') || '<div class="card"><p class="empty">No reviews yet. In Preview, on a mockup or with the app\'s Comment button, choose <b>Add to review</b>.</p></div>'}</div>`;
+}
+
+function reviewDetail(id) {
+  api(`/api/reviews?id=${encodeURIComponent(id)}`)
+    .then((v) => {
+      const st = v.review.status;
+      const rv = S.reviews[id];
+      const plan = v.plan;
+      const comment = (c) => {
+        const t = S.tickets[c.id];
+        const sk = t ? sketchesOf(t) : [];
+        return `<div class="card stack" id="x-${esc(c.id)}">
+          <div class="row" style="flex-wrap:wrap">${idLink(c.id)} ${levelPill(c.level)} ${c.screen ? `<a href="${refHref(c.screen.id)}" class="tag">${esc(c.screen.id)} ${esc(c.screen.title)}</a>` : ''} ${c.withdrawn ? pill('draft', 'withdrawn') : c.mapped ? '' : '<span class="tag warn">not classified yet</span>'}<span class="grow"></span>${['open', 'submitted'].includes(st) && !c.withdrawn && can('member') ? `<button data-review-now="${esc(c.id)}" title="Take it out of the review; the team handles it right away">Handle now</button>` : ''}</div>
+          <div>${linkify(c.text)}</div>
+          ${c.where?.mockup ? `<div class="sub">On <a href="#/file/${esc(c.where.mockup)}">${esc(c.where.mockup)}</a>${c.where.x != null ? ` at ${Math.round(c.where.x)}%, ${Math.round(c.where.y)}%` : ''}</div>` : c.where?.selector ? `<div class="sub">On <code>${esc(c.where.selector)}</code>${c.where.snippet ? ` “${esc(c.where.snippet)}”` : ''}</div>` : ''}
+          ${sk.length ? `<div class="shots">${sk.map((a) => `<a href="${shotSrc(a.path)}" target="_blank"><img src="${shotSrc(a.path)}" alt="${esc(a.caption)}"></a>`).join('')}</div>` : ''}
+          ${c.amends?.length || c.extends?.length ? `<div class="sub">${c.amends.length ? `Amends ${c.amends.map((x) => refLink(x)).join(', ')}` : ''} ${c.extends.length ? `Extends ${c.extends.map((x) => refLink(x)).join(', ')}` : ''}</div>` : ''}
+          ${c.impact ? `<div class="sub">${linkify(c.impact)}</div>` : ''}
+          ${c.withdrawn ? `<div class="sub">${linkify(c.withdrawn)}</div>` : ''}
+        </div>`;
+      };
+      const said = plan?.resolutions ?? {};
+      const checks = v.checks.length
+        ? `<div class="card feed"><h3>Checks the plan answers <span class="count">${v.checks.length}</span></h3>${v.checks.map((c) => `<div class="item"><span class="tag ${said[c.key] ? '' : c.blocking ? 'warn' : ''}">${esc(c.kind)}</span><span>${linkify(c.text)}${said[c.key] ? `<br><b>Plan:</b> ${linkify(said[c.key])}` : ''}</span></div>`).join('')}</div>`
+        : '';
+      const group = (name, list) => (list?.length ? `<div><b>${esc(name)}</b> ${list.map((x) => `${refLink(x.id)}${x.status ? ` <span class="sub">(${esc(x.status)})</span>` : ''}`).join(', ')}</div>` : '');
+      const aff = v.affected ?? {};
+      const affected = Object.values(aff).some((l) => l.length)
+        ? `<div class="card stack"><h3>What these comments touch</h3>${group('Screens', aff.screens)}${group('Tickets', aff.tickets)}${group('Stories', aff.stories)}${group('Designs', aff.designs)}${group('Open questions', aff.questions)}</div>`
+        : '';
+      const ACT = { fix: 'Fix as asked', split: 'Split into tickets', merge: 'Merged', decline: 'Not doing' };
+      const planHtml = plan
+        ? `<div class="card stack"><h3>The plan <span class="sub" style="text-transform:none;font-weight:400">by ${esc(plan.by)}, ${clock(plan.ts)}</span></h3>
+          <div class="prose">${linkify(plan.summary)}</div>
+          <table class="plan"><tbody>${plan.items.map((it) => `<tr><td>${idLink(it.comment)}</td><td>${esc(ACT[it.action])}${it.into ? ` into ${idLink(it.into)}` : ''}${it.reason ? `: ${linkify(it.reason)}` : ''}${it.assignee ? ` · ${esc(it.assignee)}` : ''}</td></tr>`).join('')}</tbody></table>
+          ${plan.amendments.length ? `<div><b>New wording</b>${plan.amendments.map((a) => `<div class="amend">${refLink(a.id)} <span class="sub">(${a.comments.map(esc).join(', ')})</span><br>${linkify(a.text)}</div>`).join('')}</div>` : ''}
+          ${plan.requirements.length ? `<div><b>New requirements</b>${plan.requirements.map((q) => `<div>${esc(q.kind)}: ${esc(q.title)} <span class="sub">(${esc(q.comment)})</span> — ${linkify(q.text)}</div>`).join('')}</div>` : ''}
+          ${plan.tickets.length ? `<div><b>New tickets</b>${plan.tickets.map((x) => `<div>${esc(x.title)} <span class="sub">(${esc(x.comment)}${x.assignee ? `, ${esc(x.assignee)}` : ''})</span></div>`).join('')}</div>` : ''}
+          ${plan.reopen.length ? `<div><b>Reopened</b> ${plan.reopen.map((x) => `${idLink(x.ticket)}: ${linkify(x.reason)}`).join('; ')}</div>` : ''}
+          ${plan.supersede.length ? `<div><b>Replaces decisions</b> ${plan.supersede.map((d) => `<a href="#/decisions/${esc(d)}">${esc(d)}</a>`).join(', ')}</div>` : ''}
+          ${v.plan_check && !v.plan_check.ok ? `<div class="callout">Out of date: ${v.plan_check.problems.map(linkify).join(' ')}</div>` : ''}
+        </div>`
+        : '';
+      const last = rv.history.filter((h) => h.what === 'sent back').at(-1);
+      const actions =
+        st === 'open'
+          ? `<div class="callout stack">You're collecting comments: in <a href="#/preview">Preview</a>, on a mockup in the Library, or with the app's Comment button (choose <b>Add to review</b>). When you're done, submit it and the lead plans all of them together.<div class="row">${can('member') ? `<button class="primary" data-review-submit="${esc(id)}" ${v.comments.length ? '' : 'disabled'}>Submit for a plan</button><button class="danger" data-review-cancel="${esc(id)}">Discard</button>` : ''}</div></div>`
+          : st === 'submitted'
+            ? `<div class="callout">The lead is planning these together: what each comment changes, the new wording, the work, and anything it contradicts. The plan comes back here for your OK.${last ? `<br><b>You asked:</b> ${linkify(last.notes)}` : ''}</div>`
+            : st === 'proposed'
+              ? `<div class="callout review-box stack"><b>Your OK.</b> Read the plan below. Approve it and HQ applies all of it: the new wording, tickets, reopened work and the decision. Or send it back with what should change.
+                  <div class="row">${can('owner') ? `<button class="primary" data-review-approve="${esc(id)}">Approve the plan</button>` : ''}</div>
+                  <form class="stack" data-form="review-revise" data-id="${esc(id)}" ${can('member') ? '' : 'hidden'}><textarea name="notes" data-keep rows="2" placeholder="What should change in the plan?" aria-label="What should change"></textarea><button type="submit">Send it back</button></form></div>`
+              : st === 'applied'
+                ? `<div class="callout">Approved by ${esc(nameOf(rv.approvedBy ?? 'you'))} and applied${rv.applied?.tickets?.length ? `: new tickets ${rv.applied.tickets.map(idLink).join(', ')}` : ''}${rv.applied?.reopened?.length ? `; reopened ${rv.applied.reopened.map(idLink).join(', ')}` : ''}${rv.applied?.amended?.length ? `; reworded ${rv.applied.amended.map((x) => refLink(x)).join(', ')}` : ''}.</div>`
+                : '';
+      keepForm('form[data-form="review-revise"]', () => {
+        $main.innerHTML = `<div class="top"><div class="grow"><div class="sub"><a href="#/reviews">Reviews</a> / ${esc(id)}</div><h1>${esc(id)} · ${esc(v.review.title)}</h1></div>${reviewPill(st)}</div>
+        ${actions}
+        <div class="grid g2" style="margin-top:14px"><div class="stack">${planHtml}${checks}</div><div class="stack">${affected}${v.possibly_related?.length ? `<div class="card"><h3>Possibly related</h3><div class="sub">Close in wording, not linked: worth a look for contradictions.</div>${v.possibly_related.map((x) => `<div>${refLink(x.id)} ${esc(x.title ?? '')}</div>`).join('')}</div>` : ''}</div></div>
+        <h2 style="margin-top:18px">Comments <span class="count">${v.comments.length}</span></h2>
+        <div class="stack">${v.comments.map(comment).join('') || '<div class="card"><p class="empty">No comments yet.</p></div>'}</div>
+        <div class="card sub" style="margin-top:14px">${rv.history.map((h) => `${clock(h.ts)} ${esc(nameOf(h.by))}: ${esc(h.what)}${h.notes ? ` — ${linkify(h.notes)}` : ''}`).join('<br>')}</div>`;
+      });
+      wireReview();
+    })
+    .catch((e) => ($main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  return new Promise(() => {});
+}
+
+function wireReview() {
+  $main.querySelectorAll('[data-review-submit]').forEach((b) => b.addEventListener('click', () => confirm('Submit this review? The lead plans all its comments together, and you approve one plan.') && act(() => api('/api/review/submit', { id: b.dataset.reviewSubmit }))));
+  $main.querySelectorAll('[data-review-open]').forEach((b) => b.addEventListener('click', () => act(() => api('/api/review/open', {}))));
+  $main.querySelectorAll('[data-review-cancel]').forEach((b) => b.addEventListener('click', () => {
+    const reason = prompt('Discard this review? Its comments are withdrawn. Why (optional)?');
+    if (reason !== null) act(() => api('/api/review/cancel', { id: b.dataset.reviewCancel, reason }));
+  }));
+  $main.querySelectorAll('[data-review-now]').forEach((b) => b.addEventListener('click', () => act(() => api('/api/review/move', { ticket: b.dataset.reviewNow, review: null }))));
+  $main.querySelectorAll('[data-review-batch]').forEach((b) => b.addEventListener('click', () => act(() => api('/api/review/move', { ticket: b.dataset.reviewBatch, review: true }))));
+  $main.querySelectorAll('[data-review-approve]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Approve the plan? HQ applies all of it now.')) return;
+      try {
+        const out = await api('/api/review/decide', { id: b.dataset.reviewApprove, verdict: 'approve' });
+        if (out.ok === false) alert(`${out.note}\n\n${out.problems.join('\n')}`);
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      }
+    }),
+  );
+  $main.querySelectorAll('form[data-form="review-revise"]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const notes = f.notes.value.trim();
+      if (notes) act(() => api('/api/review/decide', { id: f.dataset.id, verdict: 'revise', notes }));
+    }),
+  );
+  $main.querySelectorAll('[data-comment]').forEach((b) => b.addEventListener('click', () => commentDialog(JSON.parse(b.dataset.comment || '{}'))));
+  $main.querySelectorAll('[data-sketch-frame]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const frame = document.getElementById(b.dataset.sketchFrame);
+      const base = await captureRect(frame);
+      const png = await window.madcompanySketch.open({ base });
+      if (png) commentDialog({ ...JSON.parse(b.dataset.ctx || '{}'), sketch: png, frame });
+    }),
+  );
+  $main.querySelectorAll('form[data-form="screen"]').forEach((f) =>
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      act(() => api('/api/screen', { title: f.title.value.trim(), route: f.route.value.trim() || null, implements: idList(f.implements.value) }));
+    }),
+  );
+  $main.querySelectorAll('[data-add-sketch]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const t = S.tickets[b.dataset.addSketch];
+      const last = t.attachments.at(-1);
+      const png = await window.madcompanySketch.open({ base: last ? shotSrc(last.path) : null });
+      if (png) act(() => api('/api/sketch', { id: t.id, sketch: png }));
+    }),
+  );
+}
+
+// the picker inside an HTML mockup says which element was clicked; only the frame HQ opened is listened to
+window.addEventListener('message', (e) => {
+  const frame = document.getElementById('mockup-frame');
+  if (!frame || e.source !== frame.contentWindow || e.data?.type !== 'mc-picked') return;
+  const d = e.data;
+  commentDialog({ mockup: frame.dataset.mockup, selector: String(d.selector ?? '').slice(0, 300), snippet: String(d.snippet ?? '').slice(0, 160), x: Number(d.x), y: Number(d.y), frame, screen: screensOfMockup(frame.dataset.mockup)[0]?.id });
+});
 
 function fileView(r) {
   const rel = r.parts.slice(1).join('/');
   api(`/api/file?path=${encodeURIComponent(rel)}`)
     .then((f) => {
+      const scr = screensOfMockup(rel);
+      const ctx = esc(JSON.stringify({ mockup: rel, screen: scr[0]?.id }));
+      const on = scr.length ? ` Mockup of ${scr.map((x) => refLink(x.id, `${x.id} ${x.title}`)).join(', ')}.` : '';
       const body =
         f.kind === 'markdown' ? `<div class="card doc">${f.html}</div>`
         : f.kind === 'text' ? `<div class="code">${f.html}</div>`
-        : f.kind === 'image' ? `<img src="${esc(f.src)}" alt="${esc(rel)}" style="max-width:100%">`
-        : f.kind === 'html' ? `<p class="sub">Mockup, shown sandboxed. <a href="${esc(f.src)}" target="_blank" rel="noopener">Open in a new tab ↗</a></p><iframe class="frame" sandbox="allow-scripts allow-forms" src="${esc(f.src)}" title="${esc(rel)}"></iframe>`
+        : f.kind === 'image'
+          ? `<div class="row sub" style="flex-wrap:wrap;margin-bottom:8px">${can('member') ? `Click anywhere on it to comment there.${on} <button data-sketch-image="${esc(f.src)}" data-ctx="${ctx}">Sketch on it</button>` : on}</div>
+             <div class="pinboard" data-mockup="${esc(rel)}"><img src="${esc(f.src)}" alt="${esc(rel)}">${pinsFor(rel)}</div>`
+        : f.kind === 'html' ? `<div class="row sub" style="flex-wrap:wrap;margin-bottom:8px">Mockup, shown sandboxed.${on} <a href="${esc(f.src)}" target="_blank" rel="noopener">Open in a new tab ↗</a>${can('member') ? `<span class="grow"></span><button data-pick-frame>Comment on an element</button><button data-comment="${ctx}">Comment</button><button data-sketch-frame="mockup-frame" data-ctx="${ctx}">Sketch</button>` : ''}</div><iframe class="frame" id="mockup-frame" data-mockup="${esc(rel)}" sandbox="allow-scripts allow-forms" src="${esc(f.src)}?pick=1" title="${esc(rel)}"></iframe>`
         : f.kind === 'pdf' ? `<iframe class="frame" src="${esc(f.src)}" title="${esc(rel)}"></iframe>`
         : '<p class="empty">This file is too big to show.</p>';
       $main.innerHTML = `<div class="crumbs">${esc(rel)}</div>${body}`;
       renderMermaid();
+      wireReview();
+      $main.querySelector('.pinboard img')?.addEventListener('click', (e) => {
+        if (!can('member')) return;
+        const r = e.target.getBoundingClientRect();
+        commentDialog({ mockup: rel, x: (100 * (e.clientX - r.left)) / r.width, y: (100 * (e.clientY - r.top)) / r.height, screen: scr[0]?.id, base: f.src });
+      });
+      $main.querySelector('[data-pick-frame]')?.addEventListener('click', () => document.getElementById('mockup-frame').contentWindow.postMessage({ type: 'mc-pick' }, '*'));
+      $main.querySelector('[data-sketch-image]')?.addEventListener('click', async (e) => {
+        const png = await window.madcompanySketch.open({ base: e.target.dataset.sketchImage });
+        if (png) commentDialog({ ...JSON.parse(e.target.dataset.ctx), sketch: png, base: f.src });
+      });
       const a = r.query.get('a');
       const l = r.query.get('l');
       const target = a ? document.getElementById(a) : l ? document.getElementById(`L${l}`) : null;
@@ -970,7 +1261,7 @@ function wire(r) {
     const f = e.target;
     const text = f.text.value.trim();
     if (!text) return;
-    const body = { text, amends: idList(f.amends.value), extends: idList(f.extends.value) };
+    const body = { text, amends: idList(f.amends.value), extends: idList(f.extends.value), batch: Boolean(f.batch?.checked) };
     act(async () => {
       await api('/api/change', body);
       f.reset();
@@ -993,7 +1284,7 @@ function wire(r) {
   $main.querySelector('form[data-form="map"]')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
-    act(() => api('/api/map', { id: f.dataset.id, amends: idList(f.amends.value), extends: idList(f.extends.value) }));
+    act(() => api('/api/map', { id: f.dataset.id, amends: idList(f.amends.value), extends: idList(f.extends.value), ...(f.level ? { level: f.level.value, screen: f.screen.value || null } : {}) }));
   });
   $main.querySelectorAll('[data-filter]').forEach((sel) =>
     sel.addEventListener('change', () => {
@@ -1090,6 +1381,7 @@ function wire(r) {
       f.style.width = b.dataset.size === '100%' ? '100%' : `${b.dataset.size}px`;
     }),
   );
+  wireReview();
 }
 
 async function act(fn) {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { McError, member } from '../config.js';
-import { ensureDir, safeJoin } from '../paths.js';
+import { ensureDir, safeJoin, insideRoot, isHiddenPath } from '../paths.js';
 import { modeInfo } from '../modes.js';
 import { discoverTools, serversFor, policyLine } from '../tools.js';
 import { createIndex } from './graph.js';
@@ -92,8 +92,10 @@ export function createCore({ store, config, paths }) {
     return c?.kind === 'change' && c.approval && c.approval !== 'needed' ? true : isDone(id);
   };
   const blockersDone = (t) => t.blockedBy.every(isSettled);
+  // a comment batched into a review waits for the plan the human approves for all of them
+  const parked = (t) => Boolean(t.batch && s().reviews[t.batch] && !['applied', 'cancelled'].includes(s().reviews[t.batch].status));
   const isReady = (t) =>
-    (t.status === 'todo' && depsDone(t)) || (t.status === 'blocked' && blockersDone(t) && depsDone(t));
+    !parked(t) && ((t.status === 'todo' && depsDone(t)) || (t.status === 'blocked' && blockersDone(t) && depsDone(t)));
 
   function unitBranch(id) {
     if (/^R\d+$/i.test(id)) return `release/${id.toLowerCase()}`;
@@ -198,7 +200,8 @@ export function createCore({ store, config, paths }) {
   }
 
   function briefTicket(t) {
-    return { id: t.id, title: t.title, status: t.status, assignee: t.assignee, epic: t.epic, release: t.release, domain: t.domain, deps: t.deps, blockedBy: t.blockedBy, ui: t.ui, kind: t.kind };
+    const comment = ['feedback', 'change'].includes(t.kind) ? Object.fromEntries(Object.entries({ screen: t.screen, level: t.level, review: t.batch }).filter(([, v]) => v)) : {};
+    return { id: t.id, title: t.title, status: t.status, assignee: t.assignee, epic: t.epic, release: t.release, domain: t.domain, deps: t.deps, blockedBy: t.blockedBy, ui: t.ui, kind: t.kind, ...comment };
   }
 
   function status(as) {
@@ -220,6 +223,9 @@ export function createCore({ store, config, paths }) {
       mode: { name: mode().name, title: mode().title, unit: mode().unit, guidance: mode().guidance },
       current_release: byRelease() ? currentRelease() : null,
       human_help_open: Object.values(s().help).filter((h) => h.status === 'open').map((h) => ({ id: h.id, title: h.title, kind: h.kind, tickets: h.tickets })),
+      reviews: Object.values(s().reviews)
+        .filter((r) => !['applied', 'cancelled'].includes(r.status))
+        .map((r) => ({ id: r.id, status: r.status, comments: r.comments.length, next: REVIEW_NEXT[r.status] })),
       unread: isHuman(as) || as === 'cli' ? 0 : inboxFor(as).length,
       control: workdayControl(as),
     };
@@ -256,6 +262,9 @@ export function createCore({ store, config, paths }) {
       help: { open: help.length, blocking: help.filter((h) => waitingOn(h.id).length).length, top: help.slice(0, 3).map((h) => ({ id: h.id, title: h.title })) },
       needsYou: Object.values(s().questions).filter((q) => q.to === HUMAN && q.status === 'open').map((q) => ({ id: q.id, question: q.question })),
       approve: tickets.filter((t) => t.kind === 'change' && t.approval === 'needed' && !t.withdrawn).map((t) => ({ id: t.id, title: t.title, by: t.raisedBy, amends: t.amends, extends: t.extends, body: t.body })),
+      reviews: Object.values(s().reviews)
+        .filter((r) => !['applied', 'cancelled'].includes(r.status))
+        .map((r) => ({ id: r.id, title: r.title, status: r.status, by: r.by, comments: r.comments.filter((c) => !s().tickets[c]?.withdrawn).length, summary: r.plan?.summary ?? null })),
       blocked: tickets.filter((t) => t.status === 'blocked').map((t) => ({ id: t.id, title: t.title, blockedBy: t.blockedBy, assignee: t.assignee })),
       shots,
       decisions: s().decisions.slice(-5).reverse(),
@@ -379,6 +388,7 @@ export function createCore({ store, config, paths }) {
       assignee: f.assignee ?? null,
       ...(kind === 'change' && (f.amends?.length || f.extends?.length) ? { amends: f.amends ?? [], extends: f.extends ?? [] } : {}),
       ...(kind === 'change' && f.approval === 'needed' ? { approval: 'needed', raisedBy: f.raisedBy ?? as } : {}),
+      ...(['feedback', 'change'].includes(kind) ? Object.fromEntries(Object.entries({ screen: f.screen, where: f.where, level: f.level, batch: f.batch, from: f.from }).filter(([, v]) => v)) : {}),
     });
     return withWarning({ ticket: briefTicket(s().tickets[id]) }, warning);
   }
@@ -437,6 +447,10 @@ export function createCore({ store, config, paths }) {
     if (t.status === 'in_progress' && t.assignee !== as) throw new McError(`${t.id} is being worked on by ${t.assignee}.`);
     if (!depsDone(t)) throw new McError(`${t.id} depends on ${t.deps.filter((d) => !isDone(d)).join(', ')}, which aren't done yet.`);
     if (t.status === 'blocked' && !blockersDone(t)) throw new McError(`${t.id} is still blocked by ${t.blockedBy.filter((d) => !isDone(d)).join(', ')}.`);
+    if (parked(t)) {
+      const r = s().reviews[t.batch];
+      throw new McError(`${t.id} is a comment in review ${r.id} (${r.status}). It's planned with the others and starts once the human approves that plan.`);
+    }
     if (t.attempts >= config.limits.attempts) {
       throw new McError(`${t.id} has hit its limit of ${config.limits.attempts} attempts. Don't retry: ask the lead with mc_ask.`);
     }
@@ -446,7 +460,10 @@ export function createCore({ store, config, paths }) {
       if (t.kind === 'change' && t.approval === 'needed') {
         warning = `${t.id} is a change the team raised; it waits for the human's OK in HQ → Inbox before anyone starts it.`;
       } else if (['change', 'feedback'].includes(t.kind) && !index.mapping(t).mapped) {
-        warning = `${t.id} is a ${t.kind === 'change' ? 'change request' : 'feedback ticket'} that isn't mapped to the requirements it amends or extends yet. Ask the lead to map it (mc_map_change) first.`;
+        warning =
+          t.kind === 'change'
+            ? `${t.id} is a change request that isn't mapped to the requirements it amends or extends yet. Ask the lead to map it (mc_map_change) first.`
+            : `${t.id} is a comment nobody has classified (element, ux or story change) and mapped yet. Ask the lead to map it (mc_map_change) first.`;
       } else if (t.kind === 'task' && !index.trace(t.id).length) {
         warning = `${t.id} isn't linked to any requirement. Ask the lead to add refs (mc_update_ticket) or make it a chore.`;
       }
@@ -470,7 +487,8 @@ export function createCore({ store, config, paths }) {
     });
     return withWarning(
       {
-        ticket: { ...briefTicket(t), body: t.body, refs: t.refs, attempts: t.attempts, ...(t.kind === 'change' ? { amends: t.amends, extends: t.extends } : {}) },
+        ticket: { ...briefTicket(t), body: t.body, refs: t.refs, attempts: t.attempts, ...(['change', 'feedback'].includes(t.kind) ? { amends: t.amends, extends: t.extends } : {}), ...(t.where ? { where: t.where } : {}) },
+        ...(sketchesOf(t).length ? { sketches: { files: sketchesOf(t), note: 'Drawn by the human on the screen. Open each image (Read the file) before you start: it shows what they want.' } } : {}),
         resume_from: t.checkpoint,
         context,
         dependencies: depNotes,
@@ -1139,15 +1157,194 @@ export function createCore({ store, config, paths }) {
     };
   }
 
-  // ---------- feedback & change requests ----------
+  // ---------- screens: which stories and UX requirements each screen of the app implements ----------
+  const SCREEN_MAKERS = new Set(['product-manager', 'ux-designer', 'ui-designer', 'web-developer', 'mobile-developer']);
+  /** "/tasks/42?x" → ["tasks", "42"]. Hash routing ("/#/tasks") uses the hash; Expo groups like "(tabs)" aren't in URLs. */
+  function routeParts(r) {
+    let p = String(r ?? '').trim();
+    if (/^https?:\/\//i.test(p)) {
+      try {
+        const u = new URL(p);
+        p = u.pathname + u.hash;
+      } catch {
+        // keep it as written
+      }
+    }
+    const hash = p.indexOf('#');
+    if (hash >= 0) p = p.slice(hash + 1).startsWith('/') ? p.slice(hash + 1) : p.slice(0, hash);
+    return p
+      .replace(/\?.*$/, '')
+      .split('/')
+      .filter((x) => x && !/^\(.*\)$/.test(x))
+      .map((x) => x.toLowerCase());
+  }
+  /** How well a screen's route ("/tasks/:id", "/tasks/[id]", "/docs/**") matches a URL path; -1 when it doesn't. */
+  function routeScore(pattern, actual) {
+    const pp = routeParts(pattern);
+    const ap = routeParts(actual);
+    let score = 0;
+    for (let i = 0; i < pp.length; i++) {
+      if (/^(\*\*|\[\.\.\..+\]|:.+\*)$/.test(pp[i])) return ap.length >= i ? score + 0.5 : -1;
+      if (i >= ap.length) return -1;
+      if (/^(:.+|\[.+\]|\*)$/.test(pp[i])) score += 1;
+      else if (pp[i] === ap[i]) score += 2;
+      else return -1;
+    }
+    return pp.length === ap.length ? score + 1 : -1;
+  }
+  /** A file in the project (a mockup, a sketch), as a clean relative path. */
+  function projectFile(p, what) {
+    const rel = path.posix.normalize(String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/[?#].*$/, ''));
+    const abs = rel && !rel.startsWith('..') ? safeJoin(paths.root, rel) : null;
+    if (!abs || isHiddenPath(rel)) throw new McError(`${p} isn't a file in the project.`);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile() || !insideRoot(paths.root, abs)) throw new McError(`No ${what} at ${rel}.`);
+    return rel;
+  }
+  function screenById(id) {
+    const sc = s().screens[String(id ?? '').trim().toUpperCase()];
+    if (!sc) throw new McError(`No screen ${id}. mc_screens lists them; mc_screen adds one.`);
+    return sc;
+  }
+  /** The screen a comment is on: named, or the one showing this mockup, or the best route match. */
+  function screenFor(f = {}) {
+    if (f.screen) return screenById(f.screen);
+    const all = Object.values(s().screens);
+    if (f.mockup) {
+      const hit = all.find((x) => x.mockups.includes(f.mockup));
+      if (hit) return hit;
+    }
+    if (f.route) {
+      let best = null;
+      let top = -1;
+      for (const x of all) {
+        const sc = x.route ? routeScore(x.route, f.route) : -1;
+        if (sc > top) [best, top] = [x, sc];
+      }
+      if (best && top >= 0) return best;
+    }
+    return null;
+  }
+  /** Record a screen of the app (or update one, with id): its route, what it implements and its mockups. */
+  function defineScreen(as, f = {}) {
+    actor(as, { allowHuman: true, allowCli: true });
+    if (!canPlan(as) && !SCREEN_MAKERS.has(member(config, as)?.type)) throw new McError('The lead, the product manager, the designers and the front-end developers record screens.');
+    const old = f.id ? screenById(f.id) : null;
+    const title = String(f.title ?? old?.title ?? '').trim();
+    if (!title) throw new McError('A screen needs a title, e.g. "Task list".');
+    const route = f.route !== undefined ? String(f.route ?? '').trim() || null : old?.route ?? null;
+    const impl = f.implements !== undefined ? idsOf(f.implements) : old?.implements ?? [];
+    for (const x of impl) if (!index.isRequirement(x)) throw new McError(`${x} isn't a requirement, story or epic${index.node(x) ? ` (it's a ${index.node(x).kind})` : ' (nothing is registered under that ID)'}.`);
+    const warning = traced('This screen', { unknown: [], requirements: impl, anyRequirements: index.check().anyRequirements }, 'Pass implements: the stories and UX requirements it shows, e.g. ["Story 2.1", "UXR3"].');
+    const mockups = f.mockups !== undefined ? [...new Set((f.mockups ?? []).map((m) => projectFile(m, 'mockup')))] : old?.mockups ?? [];
+    const key = route ? routeParts(route).join('/') : null;
+    const dup = route && Object.values(s().screens).find((x) => x.id !== old?.id && x.route && routeParts(x.route).join('/') === key);
+    if (dup) throw new McError(`${dup.id} (${dup.title}) already has the route ${dup.route}. Update it (id "${dup.id}") instead.`);
+    const id = old?.id ?? nextId('screen', 'SCR');
+    store.append('screen.upsert', as, { id, title, route, implements: impl, mockups, ...(f.notes !== undefined ? { notes: String(f.notes) } : {}) });
+    return withWarning({ ok: true, screen: s().screens[id], note: `Link the tickets that build it with refs ["${id}"]; comments on ${route ?? 'its mockups'} land on it.` }, warning);
+  }
+  function screensView() {
+    return Object.values(s().screens).map((sc) => {
+      const card = index.card(sc.id, { limit: 30 });
+      const comments = Object.values(s().tickets).filter((t) => t.screen === sc.id && !t.withdrawn);
+      return {
+        id: sc.id,
+        title: sc.title,
+        route: sc.route,
+        implements: sc.implements,
+        mockups: sc.mockups,
+        built_by: (card.tickets ?? []).map((x) => `${x.id} (${x.status})`),
+        open_comments: comments.filter((t) => t.status !== 'done').map((t) => `${t.id}${t.level ? ` [${t.level}]` : ''}${t.batch ? ` in ${t.batch}` : ''}`),
+        ...(sc.notes ? { notes: sc.notes } : {}),
+      };
+    });
+  }
+
+  // ---------- sketches: what the human drew on a screen, for the agents to look at ----------
+  const SKETCH = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/;
+  function saveSketch(as, t, dataUrl, caption) {
+    const m = SKETCH.exec(String(dataUrl ?? ''));
+    if (!m) throw new McError('A sketch is a PNG, JPEG or WebP image (a data: URL).');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 4 * 1024 * 1024) throw new McError('The sketch is over 4 MB.');
+    // the bytes must be the image they claim to be
+    const magic = { png: [0x89, 0x50, 0x4e, 0x47], jpeg: [0xff, 0xd8, 0xff], webp: [0x52, 0x49, 0x46, 0x46] }[m[1]];
+    if (!magic.every((b, i) => buf[i] === b)) throw new McError(`That sketch isn't a ${m[1].toUpperCase()} image.`);
+    ensureDir(paths.shots);
+    const n = t.attachments.length + 1;
+    const name = `${t.id.toLowerCase()}-sketch-${n}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+    fs.writeFileSync(path.join(paths.shots, name), buf);
+    store.append('ticket.attach', as, { id: t.id, kind: 'sketch', path: `.madcompany/shots/${name}`, caption: caption ?? 'Sketch' });
+    return `.madcompany/shots/${name}`;
+  }
+  const sketchesOf = (t) => t.attachments.filter((a) => a.kind === 'sketch').map((a) => a.path);
+  function addSketch(as, id, f = {}) {
+    if (!isHuman(as) && !canPlan(as)) throw new McError('Sketches come from a person (HQ or the app\'s Comment button), or the lead relaying one.');
+    const t = ticket(id);
+    return { ok: true, path: saveSketch(as, t, f.sketch, f.caption) };
+  }
+
+  // ---------- comments: on a screen, a mockup or anything; sent now or batched into a review ----------
+  const LEVELS = { element: 'element', look: 'element', ux: 'ux', flow: 'ux', story: 'story', feature: 'story' };
+  function levelOf(raw, required = false) {
+    if (raw == null || raw === '' || raw === 'unsure') {
+      if (required) throw new McError('level is "element" (how it looks: spacing, colour, copy on one screen; keeps to what is agreed), "ux" (how it works: flow, navigation, interaction) or "story" (what it does).');
+      return null;
+    }
+    const l = LEVELS[String(raw).toLowerCase()];
+    if (!l) throw new McError(`level is element, ux or story, not "${raw}".`);
+    return l;
+  }
+  const LEVEL_WORD = { element: 'an element change', ux: 'a UX change', story: 'a story change' };
+  /**
+   * A comment: from the app's Comment button, a mockup in HQ, a sketch, or
+   * relayed by the lead from elsewhere (chat, a Claude artifact). It lands
+   * on its screen. Sent now, the lead handles it at once; batched, it waits
+   * in the person's open review until they submit the review for one plan.
+   */
   function feedback(f = {}, by = HUMAN) {
     if (!f.text?.trim()) throw new McError('Empty comment.');
-    const where = [f.route && `Screen: ${f.route}`, f.selector && `Element: \`${f.selector}\``, f.snippet && `Element text: "${String(f.snippet).slice(0, 120)}"`, f.viewport && `Screen size: ${f.viewport}`, f.url && `URL: ${f.url}`]
-      .filter(Boolean)
-      .join('\n');
-    const res = createTicket(by, { title: `Feedback: ${f.text.slice(0, 70)}`, body: `${f.text}\n\n${where}`, kind: 'feedback', ui: true });
-    post(by, { channel: 'general', text: `New feedback ${res.ticket.id} @${lead}: ${f.text}` }, { system: true });
-    return res;
+    const human = isHuman(by);
+    if (!human && !canPlan(by)) throw new McError('Comments come from a person, or the lead relaying one (mc_comment).');
+    const from = human ? by : String(f.from ?? HUMAN);
+    const level = levelOf(f.level);
+    const mockup = f.mockup ? projectFile(f.mockup, 'mockup') : null;
+    const sc = screenFor({ screen: f.screen, route: mockup ? null : f.route, mockup });
+    const pin = mockup && Number.isFinite(Number(f.x)) && Number.isFinite(Number(f.y)) ? { x: Math.max(0, Math.min(100, Number(f.x))), y: Math.max(0, Math.min(100, Number(f.y))) } : null;
+    const where = Object.fromEntries(
+      Object.entries({ route: f.route, url: f.url, selector: f.selector, snippet: f.snippet ? String(f.snippet).slice(0, 160) : null, viewport: f.viewport, mockup, ...(pin ?? {}), source: f.source }).filter(([, v]) => v != null && v !== ''),
+    );
+    const lines = [
+      sc && `Screen: ${sc.id} ${sc.title}${sc.route ? ` (${sc.route})` : ''}`,
+      f.route && !sc && `Screen: ${f.route}`,
+      mockup && `Mockup: ${mockup}${pin ? ` at ${Math.round(pin.x)}% across, ${Math.round(pin.y)}% down` : ''}`,
+      f.selector && `Element: \`${f.selector}\``,
+      f.snippet && `Element text: "${String(f.snippet).slice(0, 120)}"`,
+      f.viewport && `Screen size: ${f.viewport}`,
+      f.url && `URL: ${f.url}`,
+      f.source && `From: ${f.source}`,
+      level && `Kind (as ${human ? 'they' : 'the human'} saw it): ${LEVEL_WORD[level]}`,
+    ].filter(Boolean);
+    const batch = f.batch ? reviewFor(from, f.review === true ? null : f.review).id : null;
+    const res = createTicket(human ? by : lead, { title: `Feedback: ${f.text.slice(0, 70)}`, body: `${f.text}${lines.length ? `\n\n${lines.join('\n')}` : ''}`, kind: 'feedback', ui: true, screen: sc?.id, where, level, batch, from: human ? null : from });
+    const t = s().tickets[res.ticket.id];
+    const sketch = f.sketch ? saveSketch(by, t, f.sketch, `Sketch: ${f.text.slice(0, 60)}`) : null;
+    if (!batch) {
+      const on = sc ? ` on ${sc.id} ${sc.title}${sc.implements.length ? ` (implements ${sc.implements.join(', ')})` : ''}` : '';
+      post(human ? by : lead, { channel: 'general', text: `New feedback ${res.ticket.id}${on} @${lead}: ${f.text}${sketch ? ` (sketch: ${sketch})` : ''}` }, { system: true });
+    }
+    return {
+      ...res,
+      ...(sc ? { screen: { id: sc.id, title: sc.title, implements: sc.implements } } : {}),
+      ...(sketch ? { sketch } : {}),
+      ...(batch ? { review: { id: batch, comments: s().reviews[batch].comments.length, note: `Saved in ${batch}. Submit the review in HQ when you're done commenting; the team plans all of it together.` } } : {}),
+    };
+  }
+  /** The lead or PM files a comment the human made elsewhere: in chat, on a Claude artifact, in a call. */
+  function relayComment(as, f = {}) {
+    if (isHuman(as) || !canPlan(as)) throw new McError('The lead or the product manager relays the human\'s comments; people comment in HQ or with the app\'s Comment button.');
+    if (!String(f.source ?? '').trim()) throw new McError('Say where the comment came from (source), e.g. "chat" or the artifact link.');
+    return feedback(f, as);
   }
   /** A change request. Whoever raises it may say what it amends or extends; otherwise the lead maps it. */
   function change(f = {}, by = HUMAN) {
@@ -1156,11 +1353,13 @@ export function createCore({ store, config, paths }) {
     const amends = idsOf(f.amends);
     const ext = idsOf(f.extends);
     checkMapping(amends, ext, { allowEmpty: true });
+    const batch = f.batch && isHuman(by) ? reviewFor(by, f.review === true ? null : f.review).id : null;
     // in epic mode a change ships with the epic it changes, not on a branch of its own
     const epic = !u && !byRelease() ? index.epicOf([...amends, ...ext]) : null;
-    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', amends, extends: ext, ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : epic ? { epic } : {}) });
+    const res = createTicket(by, { title: `Change: ${f.text.slice(0, 70)}`, body: f.text, kind: 'change', amends, extends: ext, batch, ...(u ? (s().releases[u.id] ? { release: u.id } : { epic: u.id }) : epic ? { epic } : {}) });
     const impact = amends.length || ext.length ? index.impact(res.ticket.id).line : null;
     if (impact) post(by, { channel: `ticket:${res.ticket.id}`, text: impact }, { system: true });
+    if (batch) return { ...res, review: { id: batch, comments: s().reviews[batch].comments.length } };
     post(by, { channel: 'general', text: `Change request ${res.ticket.id} @${lead}: ${f.text} — ${impact ?? 'please map it to the requirements it amends or extends (mc_map_change) and post an impact check.'}` }, { system: true });
     return impact ? { ...res, impact } : res;
   }
@@ -1175,32 +1374,344 @@ export function createCore({ store, config, paths }) {
     }
   }
   /**
-   * Map a change request (or feedback) to the requirements it amends or
-   * extends. Returns, and posts in its thread, the impact: tickets, designs,
-   * stories and open questions that sit on what it amends.
+   * Map a change request or comment to what it changes. A comment says what
+   * kind of change it is: an element change stays on its screen and amends
+   * nothing; a UX or story change amends or extends requirements, and its
+   * impact reaches every screen implementing them. Returns, and posts in its
+   * thread, the impact.
    */
   function mapChange(as, id, f = {}) {
     if (!canPlan(as)) throw new McError('Only the lead, the product manager or a person maps a change request.');
     const t = ticket(id);
-    if (!['change', 'feedback'].includes(t.kind)) throw new McError(`${t.id} is a ${t.kind} ticket. Map change requests and feedback; give other tickets refs (mc_update_ticket).`);
+    if (!['change', 'feedback'].includes(t.kind)) throw new McError(`${t.id} is a ${t.kind} ticket. Map change requests and comments; give other tickets refs (mc_update_ticket).`);
     const amends = idsOf(f.amends);
     const ext = idsOf(f.extends);
-    checkMapping(amends, ext);
-    store.append('ticket.map', as, { id: t.id, amends, extends: ext });
+    const level = f.level != null && f.level !== '' ? levelOf(f.level) : t.level;
+    if (!level && t.kind === 'feedback') levelOf(null, true);
+    const screen = f.screen !== undefined ? (f.screen ? screenById(f.screen).id : null) : t.screen;
+    if (level === 'element') {
+      if (amends.length) throw new McError(`An element change keeps to what's agreed, so it amends nothing. If it changes what ${amends.join(', ')} says, map it as "ux" or "story".`);
+      checkMapping([], ext, { allowEmpty: true });
+      const sc = screen ? s().screens[screen] : null;
+      if (!ext.length && !sc) throw new McError(`Say which screen it's on (screen: "SCR-n"; mc_screens lists them, mc_screen adds one) or which story it belongs to (extends).`);
+      if (!ext.length && !sc.implements.length) throw new McError(`${sc.id} doesn't say what it implements yet. Add that (mc_screen id "${sc.id}", implements [...]) or pass extends.`);
+    } else checkMapping(amends, ext);
+    if (screen !== t.screen) store.append('ticket.update', as, { id: t.id, fields: { screen } });
+    store.append('ticket.map', as, { id: t.id, amends, extends: ext, ...(level ? { level } : {}) });
     // in epic mode a change ships with the epic it changes, not on a branch of its own
-    const epic = !byRelease() && !t.epic && !t.release && t.status === 'todo' ? index.epicOf([...amends, ...ext]) : null;
+    const epic = !byRelease() && !t.epic && !t.release && t.status === 'todo' ? index.epicOf([...amends, ...ext, ...(screen ? s().screens[screen].implements : [])]) : null;
     if (epic) {
       if (!s().epics[epic]) store.append('epic.upsert', as, { id: epic, title: epic, phase: 'build' });
       store.append('ticket.update', as, { id: t.id, fields: { epic } });
     }
     const imp = index.impact(t.id);
     post(as === 'cli' ? lead : as, { channel: `ticket:${t.id}`, text: imp.line }, { system: true });
-    const next = imp.affected.tickets.length
-      ? `Post the impact in #general. For each affected ticket: reopen it (mc_reopen) or confirm it still holds (mc_decide with refs [ticket, "${t.id}"]). Record the new wording with mc_requirement (id, text, change: "${t.id}"). Changes to a release's or epic's scope wait for the human's OK.`
-      : `Post the impact in #general, record any new wording with mc_requirement (change: "${t.id}"), then split it into tickets with refs ["${t.id}"].`;
-    const unplaced = !byRelease() && !t.epic && !t.release ? ` It isn't in an epic, so it would merge on its own branch: set one with mc_update_ticket (epic).` : '';
+    const inReview = parked(t) ? s().reviews[t.batch] : null;
+    const next = inReview
+      ? `It's one of the comments in ${inReview.id}: put its wording, tickets and reopenings in that review's plan (mc_feedback_plan), not one by one.`
+      : level === 'element'
+        ? `Fix it on ${screen ?? 'its screen'}: assign ${t.id} to whoever built the screen${imp.affected.tickets.length ? ` (${imp.affected.tickets.map((x) => `${x.id}${x.by ? ` by ${x.by}` : ''}`).join(', ')})` : ''}. Nothing agreed changes, so no new wording.`
+        : imp.affected.tickets.length
+          ? `Post the impact in #general. For each affected ticket: reopen it (mc_reopen) or confirm it still holds (mc_decide with refs [ticket, "${t.id}"]). Record the new wording with mc_requirement (id, text, change: "${t.id}"). Changes to a release's or epic's scope wait for the human's OK.`
+          : `Post the impact in #general, record any new wording with mc_requirement (change: "${t.id}"), then split it into tickets with refs ["${t.id}"].`;
+    const unplaced = !inReview && !byRelease() && !s().tickets[t.id].epic && !t.release ? ` It isn't in an epic, so it would merge on its own branch: set one with mc_update_ticket (epic).` : '';
     return { ok: true, ...imp, ...(epic ? { epic } : {}), next: next + unplaced };
   }
+
+  // ---------- reviews: the human's comments, gathered, planned as one, approved once ----------
+  const REVIEW_NEXT = {
+    open: 'The human is still commenting.',
+    submitted: 'Plan it: /mc-review-feedback (mc_feedback_review, then mc_feedback_plan).',
+    proposed: "The plan waits for the human's OK in HQ → Inbox.",
+    approved: 'Being applied.',
+  };
+  function reviewOf(id) {
+    const r = s().reviews[String(id ?? '').trim().toUpperCase()];
+    if (!r) throw new McError(`No review ${id}.`);
+    return r;
+  }
+  /** The person's open review (one at a time), opened on first use. */
+  function reviewFor(person, id) {
+    if (id) {
+      const r = reviewOf(id);
+      if (r.status !== 'open') throw new McError(`${r.id} is ${r.status}; comments go into an open review.`);
+      return r;
+    }
+    return Object.values(s().reviews).find((r) => r.status === 'open' && r.by === person) ?? openReview(person).review;
+  }
+  function openReview(as, f = {}) {
+    if (!isHuman(as)) throw new McError('A review gathers a person\'s comments; people start one in HQ or by batching a comment.');
+    const open = Object.values(s().reviews).find((r) => r.status === 'open' && r.by === as);
+    if (open) return { ok: true, review: open, existing: true };
+    const id = nextId('review', 'REV');
+    store.append('review.open', as, { id, title: String(f.title ?? '').trim() || `Review of ${new Date().toISOString().slice(0, 10)}` });
+    return { ok: true, review: s().reviews[id] };
+  }
+  /** Move a comment into a review (planned with the others) or out of it (handled now). */
+  function batchComment(as, id, target) {
+    if (!isHuman(as) && !canPlan(as)) throw new McError('Only a person or the lead moves comments in or out of a review.');
+    const t = ticket(id);
+    if (!['feedback', 'change'].includes(t.kind)) throw new McError(`${t.id} isn't a comment or change request.`);
+    if (t.withdrawn || t.status !== 'todo') throw new McError(`${t.id} is ${t.withdrawn ? 'withdrawn' : t.status}.`);
+    const cur = t.batch ? s().reviews[t.batch] : null;
+    if (cur && !['open', 'submitted'].includes(cur.status)) throw new McError(`${cur.id} is ${cur.status}: its plan covers ${t.id}. Send the plan back first.`);
+    if (target) {
+      const r = reviewFor(t.from ?? (isHuman(as) ? as : HUMAN), target === true ? null : target);
+      if (t.batch !== r.id) store.append('ticket.batch', as, { id: t.id, review: r.id });
+      return { ok: true, review: r.id };
+    }
+    if (!cur) return { ok: true, review: null };
+    store.append('ticket.batch', as, { id: t.id, review: null });
+    if (isHuman(as)) post(as, { channel: 'general', text: `${t.id} @${lead}: handle this one now, not with ${cur.id}: ${t.title}` }, { system: true });
+    return { ok: true, review: null };
+  }
+  function submitReview(as, id) {
+    if (!isHuman(as)) throw new McError('The person who gathered the comments submits the review.');
+    const r = id ? reviewOf(id) : Object.values(s().reviews).find((x) => x.status === 'open' && x.by === as);
+    if (!r) throw new McError('You have no open review.');
+    if (r.status !== 'open') throw new McError(`${r.id} is already ${r.status}.`);
+    const live = r.comments.filter((c) => !s().tickets[c]?.withdrawn);
+    if (!live.length) throw new McError(`${r.id} has no comments yet.`);
+    store.append('review.submit', as, { id: r.id });
+    return { ok: true, review: r.id, comments: live };
+  }
+  /** Everything the lead needs to plan a review, and the human to approve it. */
+  function reviewView(as, id) {
+    actor(as, { allowHuman: true, allowCli: true });
+    if (!id) {
+      return {
+        reviews: Object.values(s().reviews)
+          .reverse()
+          .map((r) => ({ id: r.id, title: r.title, by: r.by, status: r.status, comments: r.comments.length, ...(REVIEW_NEXT[r.status] ? { next: REVIEW_NEXT[r.status] } : {}) })),
+      };
+    }
+    const r = reviewOf(id);
+    const a = index.reviewAnalysis(r.id);
+    for (const c of a.comments) {
+      const sk = sketchesOf(s().tickets[c.id]);
+      if (sk.length) c.sketches = sk;
+    }
+    const out = { ...a, review: { ...a.review, history: r.history } };
+    if (r.plan) out.plan = r.plan;
+    if (['submitted', 'proposed'].includes(r.status)) {
+      const problems = r.plan ? validatePlan(r, r.plan, a) : null;
+      if (problems) out.plan_check = problems.length ? { ok: false, problems } : { ok: true };
+      out.next =
+        r.status === 'submitted'
+          ? `Map each comment (mc_map_change with level; sketches are images to open), then propose one plan with mc_feedback_plan: an item per comment, the new wording for everything amended, new tickets, reopenings, and an answer to every check.${a.comments.some((c) => c.sketches) ? ' Some comments have sketches: open them before you plan.' : ''}`
+          : "Waiting for the human's OK.";
+    }
+    return out;
+  }
+  const ACTIONS = ['fix', 'split', 'merge', 'decline'];
+  /**
+   * The plan's problems against the review as it stands now (empty: it holds).
+   * Every comment is classified and covered once; everything a UX or story
+   * comment amends gets its new wording; every check is answered.
+   */
+  function validatePlan(r, plan, a = index.reviewAnalysis(r.id)) {
+    const problems = [];
+    const live = new Map(a.comments.filter((c) => !c.withdrawn).map((c) => [c.id, c]));
+    for (const c of a.checks) if (c.blocking) problems.push(c.text);
+    if (!String(plan.summary ?? '').trim()) problems.push('Give a summary: what changes, in a few lines the human reads first.');
+    const items = new Map();
+    for (const it of plan.items ?? []) {
+      const cid = String(it.comment ?? '').toUpperCase();
+      if (!live.has(cid)) problems.push(`items: ${it.comment} isn't a comment in ${r.id}.`);
+      else if (items.has(cid)) problems.push(`items: ${cid} is listed twice.`);
+      else if (!ACTIONS.includes(it.action)) problems.push(`items: ${cid} needs an action: fix (the comment is the work), split (into tickets), merge (into another comment) or decline.`);
+      else {
+        items.set(cid, it);
+        if (it.action === 'decline' && !String(it.reason ?? '').trim()) problems.push(`items: say why ${cid} is declined (reason).`);
+        if (it.action === 'merge') {
+          const into = String(it.into ?? '').toUpperCase();
+          if (!live.has(into) || into === cid) problems.push(`items: ${cid} merges into another comment in ${r.id} (into).`);
+        }
+        if (it.assignee && !isMember(it.assignee)) problems.push(`items: unknown assignee "${it.assignee}" for ${cid}.`);
+      }
+    }
+    for (const cid of live.keys()) if (!items.has(cid)) problems.push(`items: ${cid} isn't in the plan. Every comment gets an item (fix, split, merge or decline).`);
+    for (const [cid, it] of items) if (it.action === 'merge' && ['decline', 'merge'].includes(items.get(String(it.into).toUpperCase())?.action)) problems.push(`items: ${cid} merges into ${it.into}, which is itself ${items.get(String(it.into).toUpperCase()).action}d.`);
+    const taken = (cid) => items.has(cid) && !['decline', 'merge'].includes(items.get(cid).action);
+    // wording for everything amended
+    const amended = new Map();
+    for (const am of plan.amendments ?? []) {
+      const n = index.node(am.id);
+      if (!n || !['requirement', 'story'].includes(n.kind)) {
+        problems.push(`amendments: ${am.id} isn't a requirement or story.`);
+        continue;
+      }
+      if (amended.has(n.key)) problems.push(`amendments: ${n.id} is listed twice; give it one wording.`);
+      const cs = (am.comments ?? []).map((x) => String(x).toUpperCase());
+      if (!cs.length || cs.some((x) => !live.has(x))) problems.push(`amendments: ${n.id} needs comments: the comments in ${r.id} it comes from.`);
+      else if (cs.every((x) => !taken(x))) problems.push(`amendments: ${n.id} comes only from comments the plan declines or merges.`);
+      else if (cs.some((x) => live.get(x).level === 'element')) problems.push(`amendments: ${cs.filter((x) => live.get(x).level === 'element').join(', ')} ${cs.length > 1 ? 'are' : 'is'} element changes, which amend nothing. Map them as ux or story first.`);
+      if (!String(am.text ?? '').trim()) problems.push(`amendments: ${n.id} needs its new text.`);
+      amended.set(n.key, cs);
+    }
+    for (const [cid, c] of live) {
+      if (!taken(cid)) continue;
+      for (const x of c.amends) if (!amended.has(index.keyOf(x))) problems.push(`${cid} amends ${x}, but the plan gives ${x} no new wording. Add it to amendments, or map ${cid} as extending ${x} if it doesn't change what ${x} says.`);
+    }
+    for (const q of plan.requirements ?? []) {
+      const cid = String(q.comment ?? '').toUpperCase();
+      if (!taken(cid)) problems.push(`requirements: "${q.title ?? '?'}" needs the comment it comes from (comment), one the plan keeps.`);
+      else if (live.get(cid).level === 'element') problems.push(`requirements: ${cid} is an element change; it adds no requirement.`);
+      if (!['FR', 'NFR', 'UXR'].includes(String(q.kind ?? 'FR').toUpperCase())) problems.push(`requirements: kind is FR, NFR or UXR.`);
+      if (!String(q.title ?? '').trim() || !String(q.text ?? '').trim()) problems.push('requirements: each needs a title and text.');
+      for (const x of q.extends ?? []) if (!index.isRequirement(x)) problems.push(`requirements: ${x} isn't a requirement, story or epic.`);
+    }
+    for (const nt of plan.tickets ?? []) {
+      const cid = String(nt.comment ?? '').toUpperCase();
+      if (!taken(cid)) problems.push(`tickets: "${nt.title ?? '?'}" needs the comment it does (comment), one the plan keeps.`);
+      if (!String(nt.title ?? '').trim()) problems.push('tickets: each needs a title.');
+      const found = index.check({ refs: nt.refs ?? [] });
+      if (found.unknown.length) problems.push(`tickets: "${nt.title}" refers to ${found.unknown.join(', ')}, which isn't defined anywhere.`);
+      if (nt.assignee && !isMember(nt.assignee)) problems.push(`tickets: unknown assignee "${nt.assignee}".`);
+      for (const d of nt.deps ?? []) if (!s().tickets[String(d).toUpperCase()]) problems.push(`tickets: dependency ${d} doesn't exist (new tickets can't depend on each other here; set deps after).`);
+    }
+    for (const [cid, it] of items) if (it.action === 'split' && !(plan.tickets ?? []).some((x) => String(x.comment ?? '').toUpperCase() === cid)) problems.push(`items: ${cid} is split, but no ticket in tickets does it.`);
+    const reopen = new Set();
+    for (const ro of plan.reopen ?? []) {
+      const t = s().tickets[String(ro.ticket ?? '').toUpperCase()];
+      if (!t) problems.push(`reopen: no ticket ${ro.ticket}.`);
+      else if (t.status === 'todo') problems.push(`reopen: ${t.id} hasn't started; nothing to reopen.`);
+      else if (live.has(t.id)) problems.push(`reopen: ${t.id} is a comment in this review.`);
+      else {
+        reopen.add(t.id);
+        if (!String(ro.reason ?? '').trim()) problems.push(`reopen: say why ${t.id} is reopened (reason).`);
+      }
+    }
+    const supersede = new Set();
+    for (const d of plan.supersede ?? []) {
+      const id2 = String(d).toUpperCase();
+      if (!s().decisions.some((x) => x.id === id2)) problems.push(`supersede: no decision ${d}.`);
+      else supersede.add(id2);
+    }
+    // every check answered, unless only declined or merged comments raised it
+    const said = plan.resolutions ?? {};
+    for (const c of a.checks) {
+      if (c.blocking || (c.comments.length && c.comments.every((x) => !taken(x)))) continue;
+      const id2 = c.ids[0];
+      const handled =
+        String(said[c.key] ?? '').trim() ||
+        (c.kind === 'rework' && reopen.has(id2)) ||
+        (c.kind === 'story' && amended.has(index.keyOf(id2))) ||
+        (c.kind === 'decision' && supersede.has(id2)) ||
+        (c.kind === 'overlap' && c.comments.every((x) => (amended.get(index.keyOf(id2)) ?? []).includes(x) || !taken(x))) ||
+        (c.kind === 'same-element' && c.comments.filter(taken).length <= 1);
+      if (!handled) problems.push(`${c.text} (answer it in resolutions["${c.key}"])`);
+    }
+    return problems;
+  }
+  /** The lead or PM proposes the plan for a submitted review. It must hold before the human sees it. */
+  function planReview(as, id, plan = {}) {
+    if (isHuman(as) || !canPlan(as)) throw new McError('The lead or the product manager plans a review; the human approves it.');
+    const r = reviewOf(id);
+    if (!['submitted', 'proposed'].includes(r.status)) throw new McError(`${r.id} is ${r.status}. ${r.status === 'open' ? 'The human is still commenting; it is planned once they submit it.' : ''}`);
+    const a = index.reviewAnalysis(r.id);
+    const problems = validatePlan(r, plan, a);
+    if (problems.length) throw new McError(`The plan for ${r.id} doesn't hold yet:\n- ${problems.join('\n- ')}`);
+    const clean = {
+      summary: String(plan.summary).trim(),
+      items: plan.items.map((it) => ({ comment: String(it.comment).toUpperCase(), action: it.action, ...(it.into ? { into: String(it.into).toUpperCase() } : {}), ...(it.reason ? { reason: String(it.reason) } : {}), ...(it.assignee ? { assignee: it.assignee } : {}) })),
+      amendments: (plan.amendments ?? []).map((x) => ({ id: index.node(x.id).id, text: String(x.text).trim(), comments: x.comments.map((c) => String(c).toUpperCase()) })),
+      requirements: (plan.requirements ?? []).map((x) => ({ kind: String(x.kind ?? 'FR').toUpperCase(), title: String(x.title).trim(), text: String(x.text).trim(), extends: idsOf(x.extends), comment: String(x.comment).toUpperCase() })),
+      tickets: (plan.tickets ?? []).map((x) => ({ title: String(x.title).trim(), body: String(x.body ?? ''), comment: String(x.comment).toUpperCase(), refs: idsOf(x.refs), ...(x.assignee ? { assignee: x.assignee } : {}), ...(x.domain ? { domain: String(x.domain) } : {}), ...(x.ui !== undefined ? { ui: Boolean(x.ui) } : {}), deps: (x.deps ?? []).map((d) => String(d).toUpperCase()) })),
+      reopen: (plan.reopen ?? []).map((x) => ({ ticket: String(x.ticket).toUpperCase(), reason: String(x.reason) })),
+      supersede: (plan.supersede ?? []).map((d) => String(d).toUpperCase()),
+      resolutions: Object.fromEntries(Object.entries(plan.resolutions ?? {}).filter(([, v]) => String(v ?? '').trim()).map(([k, v]) => [k, String(v).trim()])),
+    };
+    store.append('review.plan', as, { id: r.id, plan: clean, checks: a.checks.map(({ key, kind, text }) => ({ key, kind, text })) });
+    return { ok: true, review: r.id, status: 'proposed', next: "It's in HQ → Inbox for the human to approve or send back. Wait for that; nothing in it starts before." };
+  }
+  /** The human approves the plan (HQ applies all of it) or sends it back with notes. */
+  function decideReview(as, id, f = {}) {
+    if (!isHuman(as)) throw new McError('Only a person approves or sends back a review\'s plan.');
+    const r = reviewOf(id);
+    if (r.status !== 'proposed') throw new McError(`${r.id} has no plan waiting (it is ${r.status}).`);
+    if (!['approve', 'revise'].includes(f.verdict)) throw new McError('verdict is "approve" or "revise".');
+    if (f.verdict === 'revise') {
+      if (!String(f.notes ?? '').trim()) throw new McError('Say what should change in the plan.');
+      store.append('review.decide', as, { id: r.id, verdict: 'revise', notes: String(f.notes).trim() });
+      return { ok: true, status: 'submitted' };
+    }
+    // things may have moved since it was planned: a plan that no longer holds goes back
+    const problems = validatePlan(r, r.plan);
+    if (problems.length) {
+      store.append('review.decide', 'cli', { id: r.id, verdict: 'revise', notes: `Out of date since it was planned: ${problems.join(' ')}` });
+      return { ok: false, status: 'submitted', problems, note: 'Things changed since the plan was made, so it went back to the lead to update.' };
+    }
+    store.append('review.decide', as, { id: r.id, verdict: 'approve', notes: String(f.notes ?? '') });
+    return { ok: true, status: 'applied', ...applyPlan(as, r) };
+  }
+  /** Carry out an approved plan: withdraw, merge, reword, add requirements and tickets, reopen, record the decision. */
+  function applyPlan(approver, r) {
+    const plan = r.plan;
+    const by = plan.by;
+    const done = { withdrawn: [], merged: [], amended: [], added: [], tickets: [], reopened: [], decisions: [] };
+    for (const it of plan.items) {
+      if (it.action === 'merge') {
+        post(by, { channel: `ticket:${it.into}`, text: `Merged in from ${it.comment}: ${s().tickets[it.comment].body}` }, { system: true });
+        withdrawChange(by, it.comment, `merged into ${it.into} (plan for ${r.id})`);
+        done.merged.push(`${it.comment} → ${it.into}`);
+      }
+      if (it.action === 'decline') {
+        withdrawChange(by, it.comment, `${it.reason} (plan for ${r.id})`);
+        done.withdrawn.push(it.comment);
+      }
+    }
+    for (const am of plan.amendments) {
+      defineRequirement(by, { id: am.id, text: am.text, change: am.comments.find((c) => !s().tickets[c].withdrawn) });
+      done.amended.push(am.id);
+    }
+    for (const q of plan.requirements) done.added.push(defineRequirement(by, { kind: q.kind, title: q.title, text: q.text, extends: q.extends, change: q.comment }).id);
+    for (const nt of plan.tickets) {
+      const c = s().tickets[nt.comment];
+      const res = createTicket(lead, { title: nt.title, body: nt.body, refs: [nt.comment, ...nt.refs], ui: nt.ui ?? c.ui, domain: nt.domain, deps: nt.deps, assignee: nt.assignee, ...(c.release ? { release: c.release } : c.epic ? { epic: c.epic } : {}) });
+      done.tickets.push(res.ticket.id);
+    }
+    for (const ro of plan.reopen) {
+      reopen(lead, ro.ticket, `${ro.reason} (plan for ${r.id})`);
+      done.reopened.push(ro.ticket);
+    }
+    for (const it of plan.items) if (it.action === 'fix' && it.assignee) assign(lead, it.comment, it.assignee);
+    // the human's OK is a decision: it settles what the plan answered (rework kept, decisions and answers that still hold)
+    const kept = plan.items.filter((it) => !['decline', 'merge'].includes(it.action)).map((it) => it.comment);
+    const answered = (r.plan.checks ?? []).filter((c) => plan.resolutions[c.key]).map((c) => c.key.split(':').slice(1).join(':')).filter((x) => index.node(x) && !x.includes('+'));
+    const refs = [...new Set([...kept, ...done.amended, ...answered])];
+    const why = [`${nameOf(approver)} approved the plan for ${r.id} (${r.comments.length} comment${r.comments.length === 1 ? '' : 's'}).`, ...Object.entries(plan.resolutions).map(([k, v]) => `${k}: ${v}`)].join(' ');
+    const did = nextId('dec', 'DEC');
+    store.append('decision.log', approver, { id: did, title: `Plan for ${r.id} approved: ${r.title}`, decision: plan.summary, why, alternatives: '', links: [], ticket: null, refs, supersedes: plan.supersede[0] ?? null });
+    done.decisions.push(did);
+    for (const old of plan.supersede.slice(1)) {
+      const x = nextId('dec', 'DEC');
+      store.append('decision.log', approver, { id: x, title: `${old} no longer holds (plan for ${r.id})`, decision: `Superseded by ${did}.`, why: plan.summary, alternatives: '', links: [], ticket: null, refs: kept, supersedes: old });
+      done.decisions.push(x);
+    }
+    // the plan answered every check against what's agreed, and a person approved it: that's a consistency review
+    const checked = [...plan.items.filter((it) => ['fix', 'split'].includes(it.action) && s().tickets[it.comment]?.level !== 'element').map((it) => it.comment), ...done.amended, ...done.added];
+    if (checked.length) store.append('consistency.check', by, { ids: checked, verdict: 'consistent', note: `Planned together in ${r.id}; ${nameOf(approver)} approved the plan (${did}).` });
+    store.append('review.applied', by, { id: r.id, ...done });
+    return done;
+  }
+  function nameOf(id) {
+    return id === HUMAN ? config.owner ?? 'The owner' : config.people.find((p) => p.id === id)?.name ?? id;
+  }
+  /** Discard a review: its comments nobody has started are withdrawn. */
+  function cancelReview(as, id, reason) {
+    if (!isHuman(as) && as !== lead) throw new McError('A person (or the lead, when asked) discards a review.');
+    const r = reviewOf(id);
+    if (!['open', 'submitted', 'proposed'].includes(r.status)) throw new McError(`${r.id} is ${r.status}.`);
+    const why = String(reason ?? '').trim() || 'review discarded';
+    for (const c of r.comments) {
+      const t = s().tickets[c];
+      if (t && !t.withdrawn && t.status === 'todo') withdrawChange(as, c, `${r.id} discarded: ${why}`);
+    }
+    store.append('review.cancel', as, { id: r.id, reason: why });
+    return { ok: true };
+  }
+
   /**
    * Withdraw a change request nobody has started (you said no, or it's no
    * longer wanted). Its untouched tickets go with it, the wording it proposed
@@ -1444,8 +1955,20 @@ export function createCore({ store, config, paths }) {
     toolsSummary,
     ticket,
     feedback,
+    relayComment,
     change,
     mapChange,
+    defineScreen,
+    screensView,
+    screenFor,
+    addSketch,
+    openReview,
+    batchComment,
+    submitReview,
+    reviewView,
+    planReview,
+    decideReview,
+    cancelReview,
     withdrawChange,
     conflict,
     check,

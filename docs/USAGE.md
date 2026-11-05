@@ -108,7 +108,7 @@ This is your session. The team builds real screens on fake data. Add the widget 
 <script src="http://127.0.0.1:4317/widget.js" defer></script>
 ```
 
-Open HQ → **Preview**, click **Comment**, click any element, and type what should change. Each comment becomes a ticket with the screen, element and screen size attached. When you approve, the screens are locked and the API contract is written to `docs/design/`. In UI-MVP mode, wiring those screens to a real backend is the next release.
+Open HQ → **Preview**, click **Comment**, click any element, and type what should change, or **Sketch** to draw on the screen. Each comment lands on its screen with the element and screen size attached; send it now or gather several in a review (see [13](#13-comments-sketches-and-reviews)). When you approve, the screens are locked and the API contract is written to `docs/design/`. In UI-MVP mode, wiring those screens to a real backend is the next release.
 
 ## 6. The workday: `/mc-start`
 
@@ -224,11 +224,22 @@ HQ keeps a project index: every requirement, story, epic, ticket, change request
 - **Contradictions.** An item can contradict a requirement without naming it. The index lists what's *possibly related* (close in wording, not linked) next to every story, requirement and ticket, and in each agent's context. Whoever spots a contradiction raises it with `mc_conflict`: use-case ones go to the product manager, technical ones to the architect (the lead if the team has neither). New stories, added requirements and change requests are listed as unchecked until someone runs `/mc-check`. When settling one needs a requirement to change, the lead or PM raises a change request: it appears in your **Inbox** to approve or withdraw, and nobody builds it before you approve.
 - **Notes.** Agents leave `mc_note`s on the story or requirement they worked on (edge cases, how it works). They come back to whoever picks up that story next, and are in `.madcompany/log/notes.md`.
 
+## 13. Comments, sketches and reviews
+
+Once there are screens, you change them by commenting on them.
+
+- **Where.** In your running app, the **Comment** button (from `<script src="http://127.0.0.1:4317/widget.js" defer></script>`, development only): click an element and say what should change. In HQ → **Preview**: **Comment** and **Sketch** above the app. In HQ → Library, on a **mockup image**: click the spot you mean (a numbered pin marks it). On an **HTML mockup**: **Comment on an element**, then click the element. A comment from chat or a Claude artifact: ask the lead to file it (`mc_comment`).
+- **What kind.** Say whether it's about how it **looks** (size, spacing, colour, wording on this screen), how it **flows** (steps, navigation, what happens when you tap) or what it **does** (a new feature or different behaviour). Not sure? Leave it; the lead decides. A look change is fixed on its screen and changes nothing agreed. A flow or feature change rewrites a UX requirement or story; its impact reaches every screen showing it, the tickets that built them, the mockups and the API contract.
+- **Sketch.** **Sketch** captures the screen (your browser asks to share the tab; pick this tab), or starts from a mockup, a pasted image (Ctrl+V) or a blank page. Draw, add arrows, boxes and text, then **Use sketch**. It's saved with the comment, and the agent fixing it opens it first.
+- **Send now or add to a review.** **Send now**: the lead handles it at once. **Add to review**: it waits in your review (`REV-n`) with your other comments, and nothing starts. When you're done, **Submit for a plan** (HQ → Reviews or Preview). The lead classifies every comment and proposes one plan: what each comment becomes (fixed, split into tickets, merged with another, or not done and why), the new wording of each story or requirement it changes, new and reopened tickets, decisions it replaces, and how it squares with everything it touches (other changes to the same story, decisions, your earlier answers, built work, agreed contracts). HQ won't accept a plan that leaves any of that out. You read it in HQ → Reviews: **Approve the plan** and HQ applies all of it, or **Send it back** with what should change. Changed your mind about one comment? **Handle now** takes it out of the review; **Discard** drops the whole review.
+- **Files.** Screens are in `.madcompany/log/screens.md`, reviews and their plans in `.madcompany/log/reviews.md`, sketches in `.madcompany/shots/`.
+
 ## Troubleshooting
 
 - **Agents ask for permission, or can't run commands:** accept the trust prompt (step 1). Then check `.claude/settings.json` → `permissions.allow`, and add your stack's commands; `npx madcompany init` again adds any new defaults. Claude Code refuses some command *shapes* whatever the list says: brackets around commands, `cd` or `git -C` into another folder, and writing files from the shell (`cat > file`). The agent protocol tells agents to avoid them; an agent asking for `git` or `npm test` to be allowed should rewrite its command instead.
 - **Claude Code doesn't list the `madcompany` tools:** is HQ running? Run `/mcp` in Claude Code to check the server.
 - **Port 4317 is taken:** `npx madcompany hq --port 4400` and `npx madcompany init --port 4400` (that updates `.mcp.json`).
+- **Sketch shows a blank page instead of the screen:** your browser didn't share the tab (or can't, e.g. on a phone). Paste a screenshot with Ctrl+V or **Image…**, or draw on the blank page.
 - **A "madcompany policy" message blocked something:** that action needs you. The agent should have filed it in Human help; do it yourself, or set the matching option (e.g. `allow_push: true`).
 - **`ship` says your checkout is on another branch or has changes:** switch to `main` and commit or stash your own changes first. HQ's files under `.madcompany/` and `docs/design/` don't block it.
 - **A teammate's link says "Sign in with the link…":** their link was replaced or they were removed. Run `npx madcompany people link <id>` and send the new one.

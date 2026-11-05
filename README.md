@@ -2,7 +2,7 @@
 
 **An AI software company inside your own Claude Code session.** A team of agents with roles, memory and a model you choose builds your app in parallel: screens first, release by release. You follow every message, ticket and decision in **HQ**, a local app with a dashboard, Teams-style chat, a Jira-style board, releases, a library and your inbox. You only step in where a person has to.
 
-**[Website](https://lokkrish.github.io/madcompany/)** · [Workflows](https://lokkrish.github.io/madcompany/workflows.html) · [Human help](https://lokkrish.github.io/madcompany/human-help.html) · [Commands](https://lokkrish.github.io/madcompany/commands.html) · [Usage guide](docs/USAGE.md) · [Spec](docs/SPEC.md)
+**[Website](https://lokkrish.github.io/madcompany/)** · [Workflows](https://lokkrish.github.io/madcompany/workflows.html) · [Comments & reviews](https://lokkrish.github.io/madcompany/reviews.html) · [Human help](https://lokkrish.github.io/madcompany/human-help.html) · [Commands](https://lokkrish.github.io/madcompany/commands.html) · [Usage guide](docs/USAGE.md) · [Spec](docs/SPEC.md)
 
 Compatible with [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) v6. Not affiliated with BMad Code, LLC.
 
@@ -13,7 +13,7 @@ Compatible with [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) v6. 
 BMad plans well, but its build phase goes one story at a time (create story → develop → review → next), about two weeks per epic, and you can't see the app until late. madcompany replaces that loop with a team:
 
 - **Parallel work.** Agents with roles (backend, web, mobile, QA, security…) take tickets in their own domain, each in its own git worktree, with its own ports and database.
-- **You see it early.** Screens come first on mock data; click through them in HQ's Preview and comment on any element.
+- **You see it early, and change it by pointing at it.** Screens come first on mock data. Click through them in HQ's Preview, comment on any element or mockup, or sketch what you mean on the screen. Send a comment now, or gather several and approve one plan for all of them: [Comments, sketches and reviews](#comments-sketches-and-reviews).
 - **You're asked only what's yours.** One-line, multiple-choice questions with a recommendation. Answers are saved, so nobody asks twice.
 - **Everything only you can do is in one list:** [Human help](#human-help). Accounts, API keys, payments, pushes and deploys, each with exact steps.
 - **Every reference is clickable.** FR12, Story 1.2, APP-42, DEC-7, HELP-3, R2: click it and HQ opens the exact line.
@@ -151,6 +151,21 @@ The agents don't read the whole PRD to find out what a story depends on. HQ keep
 
 ![HQ Trace: requirements with their tickets and changes, and what to fix](docs/images/hq-trace.png)
 
+## Comments, sketches and reviews
+
+Once there are screens, most changes start as you clicking around them. madcompany keeps that traceable too:
+
+- **Screens know their stories.** The team records each screen (`mc_screen`: route, the stories and UX requirements it implements, its mockups), and UI tickets name the screen they build. A comment on `/tasks` lands on the Task list screen, so the lead sees which stories it touches.
+- **Comment anywhere.** Use the **Comment** button in your running app (or in HQ → Preview), click a spot on a mockup image, or pick an element on an HTML mockup. **Sketch** captures the screen and lets you draw, add arrows, boxes and text; the agent fixing it is told to open your sketch first.
+- **Three kinds of change.** The lead classifies each comment: a **look** change stays on its screen and changes nothing agreed; a **flow** change amends a UX requirement and reaches every screen implementing it; a **feature** change amends or extends a story. Each one's impact lists the screens, tickets, mockups, stories and contracts it touches.
+- **Batch or send now.** Send a comment now, or add it to your review. When you submit the review, the lead plans all of it as one (`/mc-review-feedback`): what each comment changes, the new wording, new and reopened tickets, and an answer to every conflict with what's agreed. HQ refuses a plan with gaps. You approve it once in HQ → Reviews and HQ applies all of it.
+
+We use our own comment UI rather than Claude artifacts: your prototype is the real app running on your machine, comments have to reach HQ's log to be traced, and it works without a claude.ai account. A comment you made on an artifact or in chat still counts: the lead files it with `mc_comment`.
+
+![HQ Reviews: a plan for three comments, waiting for your OK](docs/images/hq-review.png)
+
+![The sketch tool: draw, arrows, boxes and text on a mockup](docs/images/hq-sketch.png)
+
 ## MCP servers and plugins
 
 The agents are Claude Code subagents, so the MCP servers and plugins you've added to Claude Code are theirs too. madcompany makes that safe and deliberate:
@@ -175,6 +190,7 @@ The agents are Claude Code subagents, so the MCP servers and plugins you've adde
 | `/mc-ui-sprint` | Build and sign off screens with you; derive the API contract |
 | `/mc-start` | Start the workday; your session becomes the lead |
 | `/mc-check` | Check new stories and change requests against what's agreed; each contradiction goes to the PM or architect |
+| `/mc-review-feedback` | Plan a review of your comments: classify each one (look, flow, feature), answer every conflict, propose one plan for your OK |
 | `/mc-minutes` | Minutes of the current conversation (key points, decisions, actions, links) into HQ |
 | `/mc-end-day`, `/mc-stop` | End the day with handoffs, or stop immediately |
 
@@ -193,7 +209,7 @@ The agents are Claude Code subagents, so the MCP servers and plugins you've adde
 | `trace [--strict]` | How much work and discussion maps to requirements, and what to fix (`--strict` for CI) |
 | `status`, `env <agent>`, `snapshot` | Summary, per-agent ports and database, commit HQ's logs |
 
-HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Trace, Team, Tools, Preview**, plus search and a page per ID. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
+HQ's screens: **Dashboard, Chat, Board, Releases, Library, Inbox, Human help, Decisions, Trace, Team, Tools, Preview, Reviews**, plus search and a page per ID. Full reference: [Commands](https://lokkrish.github.io/madcompany/commands.html).
 
 ## Safety
 
@@ -206,14 +222,15 @@ Agents work unattended, so the rules are enforced in code, not just in prompts:
 
 ## Status
 
-v0. Covered by 67 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
+v0. Covered by 76 automated tests. The core loop was checked with real Claude Code runs (a Sonnet lead with Haiku dev and QA agents):
 
 | Run | What happened | Time | Usage |
 |---|---|---|---|
 | Plain ticket | dev built it → QA reviewed and ran the tests → merged → End day handled | 2–2.5 min | ~$0.5 |
 | Park and resume | dev hit an unspecified product decision → asked → parked with a checkpoint → lead escalated it to you as multiple-choice → you answered (saved as a fact) → dev resumed → reviewed → merged | ~2.5 min | ~$0.7 |
 | Change request (strict traceability) | you asked for a change that contradicts the story → lead mapped it (amends FR2), recorded the new wording, logged a decision on the affected ticket and sequenced it → dev built the story with the amended FR2 in its context, left notes on the story → QA looked FR2 up in the index and reviewed against the amended wording → merged → dev built the change with both notes in its context, logged an edge-case decision → reviewed → merged → epic sent for review → End day handled. Every message, question and decision named its ticket or requirement | ~7.5 min | ~$0.5 |
-| Contradiction with no shared ID | a new story let several people be a task's assignee; nothing linked it to FR2 ("exactly one assignee") → the dev found FR2 under "possibly related" in its context, raised a use-case conflict to the PM and parked the ticket → the PM raised a change amending FR2 for your OK → you approved → lead recorded the wording and the consistency check → the change, then the story, built against the amended FR2; QA caught an edge case only the new wording creates. Interrupted twice by Bash permission denials (an open issue) and by restarting HQ mid-run; fixes for what it exposed are in this branch | ~8 min of work | ~$0.8 |
+| Contradiction with no shared ID | a new story let several people be a task's assignee; nothing linked it to FR2 ("exactly one assignee") → the dev found FR2 under "possibly related" in its context, raised a use-case conflict to the PM and parked the ticket → the PM raised a change amending FR2 for your OK → you approved → lead recorded the wording and the consistency check → the change, then the story, built against the amended FR2; QA caught an edge case only the new wording creates. Interrupted twice by Bash permission denials and by restarting HQ mid-run; what it exposed has been fixed since | ~8 min of work | ~$0.8 |
+| Review of batched comments | you batched 4 comments on two screens (one with a sketch) and submitted them → a Sonnet lead running `/mc-review-feedback` opened the sketch, classified each comment (one element, three ux or story), and proposed one plan that HQ accepted on the first try: Story 2.1 reworded once for two comments, Story 1.1 amended for Google sign-up, the earlier "email and password only" decision superseded, the built sign-up ticket reopened, a new ticket for the Google button → approved in HQ, which applied all of it. The first attempt exposed a gap (a comment that *extends* a story wasn't checked against decisions on it), fixed before this run | 12 turns, no worker agents | ~$0.14 |
 
 The MCP policy was checked with a real headless Claude Code run: a read-only tool ran, a delete was blocked with the Human help message, and without the hook the read-only tool was denied. Releases, modes and Human help are covered by automated tests but haven't had a full real run yet. In the traceability run no agent was refused (each named its ticket or requirement unprompted), so the refusal path is covered by automated tests only. Not yet built: a deploy step beyond the Human help checklist, importing in-progress BMad sprints, screenshot comparison, a Codex adapter. See [docs/SPEC.md §17](docs/SPEC.md#17-build-v0) and the [roadmap](docs/SPEC.md#19-roadmap-what-a-20-person-company-still-does-that-this-doesnt).
 

@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 export function emptyState() {
   return {
     seq: 0,
-    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0, release: 0, help: 0, note: 0 },
+    counters: { ticket: 0, dec: 0, q: 0, fact: 0, msg: 0, mom: 0, link: 0, release: 0, help: 0, note: 0, screen: 0, review: 0 },
     minutes: [],
     links: [],
     workday: { state: 'off', since: null },
@@ -28,6 +28,10 @@ export function emptyState() {
     notes: [],
     // consistency reviews: which stories, requirements and changes were checked against what's agreed
     checks: [],
+    // screens of the app and the stories / UX requirements each one implements
+    screens: {},
+    // the human's comments gathered into one review, planned together and approved once
+    reviews: {},
     designs: {},
     envs: {},
     handoffs: {},
@@ -134,6 +138,12 @@ export function applyEvent(s, ev) {
         // a change the team raised waits for a person's OK ("needed"), then holds who gave it
         approval: d.approval ?? null,
         raisedBy: d.raisedBy ?? null,
+        // comments: the screen they are on, where exactly, what kind of change, and the review they wait in
+        screen: d.screen ?? null,
+        where: d.where ?? null,
+        level: d.level ?? null,
+        batch: d.batch ?? null,
+        from: d.from ?? null,
         status: 'todo',
         blockedBy: [],
         attempts: 0,
@@ -146,14 +156,25 @@ export function applyEvent(s, ev) {
         commits: [],
         activity: [],
       };
+      if (d.batch && s.reviews[d.batch] && !s.reviews[d.batch].comments.includes(d.id)) s.reviews[d.batch].comments.push(d.id);
       break;
     case 'ticket.update':
-      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs', 'kind']) if (k in d.fields) t[k] = d.fields[k];
+      if (t) for (const k of ['title', 'body', 'deps', 'domain', 'ui', 'epic', 'release', 'refs', 'kind', 'screen']) if (k in d.fields) t[k] = d.fields[k];
       break;
     case 'ticket.map':
       // the first mapping is when the change started to count: "before the change" means before that
-      if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: t.mappedBy ?? ev.by, mappedAt: t.mappedAt ?? ev.ts, mappedSeq: t.mappedSeq ?? ev.seq });
+      if (t) Object.assign(t, { amends: d.amends ?? [], extends: d.extends ?? [], mappedBy: t.mappedBy ?? ev.by, mappedAt: t.mappedAt ?? ev.ts, mappedSeq: t.mappedSeq ?? ev.seq, ...(d.level ? { level: d.level } : {}) });
       break;
+    // a comment moves into a review (planned with the others) or out of it (handled now)
+    case 'ticket.batch': {
+      if (!t) break;
+      const from = t.batch && s.reviews[t.batch];
+      if (from) from.comments = from.comments.filter((x) => x !== t.id);
+      t.batch = d.review ?? null;
+      const to = t.batch && s.reviews[t.batch];
+      if (to && !to.comments.includes(t.id)) to.comments.push(t.id);
+      break;
+    }
     case 'ticket.approve':
       if (t) t.approval = { by: ev.by, ts: ev.ts };
       break;
@@ -261,6 +282,47 @@ export function applyEvent(s, ev) {
       s.notes.push({ about: [], scope: 'story', ...d, by: ev.by, ts: ev.ts, seq: ev.seq });
       break;
 
+    case 'screen.upsert': {
+      s.counters.screen = Math.max(s.counters.screen ?? 0, num(d.id));
+      const old = s.screens[d.id];
+      s.screens[d.id] = { implements: [], mockups: [], route: null, by: ev.by, ts: ev.ts, ...(old ?? {}), ...d, updated: ev.ts };
+      break;
+    }
+
+    // reviews: open (collecting comments) → submitted → proposed (a plan) → applied, or cancelled
+    case 'review.open':
+      s.counters.review = Math.max(s.counters.review ?? 0, num(d.id));
+      s.reviews[d.id] = { id: d.id, title: d.title, by: ev.by, ts: ev.ts, status: 'open', comments: [], plan: null, history: [{ by: ev.by, ts: ev.ts, what: 'opened' }] };
+      break;
+    case 'review.submit': {
+      const r = s.reviews[d.id];
+      if (r) Object.assign(r, { status: 'submitted', submittedAt: ev.ts }).history.push({ by: ev.by, ts: ev.ts, what: 'submitted' });
+      break;
+    }
+    case 'review.plan': {
+      const r = s.reviews[d.id];
+      if (r) Object.assign(r, { status: 'proposed', plan: { ...d.plan, by: ev.by, ts: ev.ts, seq: ev.seq, checks: d.checks ?? [] } }).history.push({ by: ev.by, ts: ev.ts, what: 'planned' });
+      break;
+    }
+    case 'review.decide': {
+      const r = s.reviews[d.id];
+      if (!r) break;
+      r.history.push({ by: ev.by, ts: ev.ts, what: d.verdict === 'approve' ? 'approved' : 'sent back', notes: d.notes ?? '' });
+      r.status = d.verdict === 'approve' ? 'approved' : 'submitted';
+      if (d.verdict === 'approve') r.approvedBy = ev.by;
+      break;
+    }
+    case 'review.applied': {
+      const r = s.reviews[d.id];
+      if (r) Object.assign(r, { status: 'applied', applied: { ...d, ts: ev.ts } }).history.push({ by: ev.by, ts: ev.ts, what: 'applied' });
+      break;
+    }
+    case 'review.cancel': {
+      const r = s.reviews[d.id];
+      if (r) Object.assign(r, { status: 'cancelled' }).history.push({ by: ev.by, ts: ev.ts, what: 'cancelled', notes: d.reason ?? '' });
+      break;
+    }
+
     case 'design.write': {
       const old = s.designs[d.path];
       s.designs[d.path] = {
@@ -325,7 +387,8 @@ export function summarize(ev) {
     case 'ticket.update': return `updated ${Object.keys(d.fields ?? {}).join(', ')}`;
     case 'ticket.withdraw': return `withdrawn${d.reason ? `: ${d.reason}` : ''}`;
     case 'ticket.approve': return 'change approved';
-    case 'ticket.map': return `mapped: ${[d.amends?.length ? `amends ${d.amends.join(', ')}` : '', d.extends?.length ? `extends ${d.extends.join(', ')}` : ''].filter(Boolean).join('; ') || 'nothing'}`;
+    case 'ticket.map': return `mapped${d.level ? ` as ${d.level === 'element' ? 'an element' : d.level === 'ux' ? 'a UX' : 'a story'} change` : ''}: ${[d.amends?.length ? `amends ${d.amends.join(', ')}` : '', d.extends?.length ? `extends ${d.extends.join(', ')}` : ''].filter(Boolean).join('; ') || (d.level === 'element' ? 'keeps to what is agreed' : 'nothing')}`;
+    case 'ticket.batch': return d.review ? `added to review ${d.review}` : 'taken out of its review: handled now';
     case 'ticket.assign': return `assigned to ${d.agent}`;
     case 'ticket.claim': return 'started work';
     case 'ticket.status':
@@ -375,6 +438,13 @@ export function describeEvent(ev) {
     case 'requirement.amend': return `amended ${d.id}${d.change ? ` (${d.change})` : ''}: ${clip(d.text)}`;
     case 'consistency.check': return `checked ${(d.ids ?? []).join(', ')} for conflicts: ${d.verdict}`;
     case 'note.add': return `noted on ${(d.about ?? []).join(', ')}: ${clip(d.text)}`;
+    case 'screen.upsert': return `recorded screen ${d.id}${d.title ? `: ${d.title}` : ''}`;
+    case 'review.open': return `started review ${d.id}`;
+    case 'review.submit': return `submitted review ${d.id} for a plan`;
+    case 'review.plan': return `proposed the plan for ${d.id}`;
+    case 'review.decide': return d.verdict === 'approve' ? `approved the plan for ${d.id}` : `sent the plan for ${d.id} back: ${clip(d.notes ?? '')}`;
+    case 'review.applied': return `applied the plan for ${d.id}`;
+    case 'review.cancel': return `discarded review ${d.id}`;
     default: return null;
   }
 }

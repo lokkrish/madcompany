@@ -103,6 +103,8 @@ export function hqEntries(state) {
   for (const r of Object.values(state.releases ?? {})) reg[normalizeKey(r.id)] = { hq: `#/releases/${r.id}`, title: `${r.id} ${r.title} (${r.status})` };
   for (const r of Object.values(state.requirements ?? {})) reg[normalizeKey(r.id)] = { file: '.madcompany/log/requirements.md', anchor: r.id.toLowerCase(), title: `${r.id}: ${r.title}` };
   for (const n of state.notes ?? []) reg[normalizeKey(n.id)] = { hq: `#/ref/${n.id}`, title: `${n.id} note by ${n.by} on ${n.about.join(', ')}` };
+  for (const sc of Object.values(state.screens ?? {})) reg[normalizeKey(sc.id)] = { hq: `#/ref/${sc.id}`, title: `${sc.id} ${sc.title}${sc.route ? ` (${sc.route})` : ''}` };
+  for (const r of Object.values(state.reviews ?? {})) reg[normalizeKey(r.id)] = { hq: `#/reviews/${r.id}`, title: `${r.id} ${r.title} (${r.status})` };
   return reg;
 }
 

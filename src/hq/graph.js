@@ -6,7 +6,7 @@ import { normalizeKey, MENTION, listMarkdown, DEFAULT_DIRS, cleanTitle } from '.
 /**
  * The project index: every ID in the project (requirements, stories, epics,
  * releases, tickets, change requests, decisions, questions, facts, notes,
- * design docs, meetings, chat) and the typed links between them. It is built
+ * screens, design docs, meetings, chat) and the typed links between them. It is built
  * from HQ's event log and the anchored planning docs, so "what touches FR12?"
  * is a lookup, not a model reading every file: what a language server does
  * for code, for the requirements and management side.
@@ -33,7 +33,7 @@ const OUT_LABEL = {
   supersedes: 'supersedes',
 };
 // incoming links grouped by what they come from
-const FROM_KIND = { decision: 'decisions', question: 'questions', fact: 'facts', message: 'discussion', note: 'notes', minutes: 'meetings', help: 'human help', design: 'designs' };
+const FROM_KIND = { decision: 'decisions', question: 'questions', fact: 'facts', message: 'discussion', note: 'notes', minutes: 'meetings', help: 'human help', design: 'designs', screen: 'screens' };
 const IN_LABEL = { amends: 'amended by', extends: 'extended by', defines: 'defined by', depends_on: 'needed by', blocked_by: 'blocking', part_of: 'contains', supersedes: 'superseded by' };
 const VIA_TICKETS = new Set(['decision', 'question', 'note', 'message', 'help']);
 
@@ -284,6 +284,11 @@ export function createIndex({ store, config, paths }) {
       const n = add(d.path, { id: d.path, kind: 'design', title: path.posix.basename(d.path), file: d.path });
       Object.assign(n, { kind: 'design', status: d.status, by: d.owner, version: d.version, consumers: d.consumers });
     }
+    // screens of the app; their mockups are design files even when nobody registered them
+    for (const sc of Object.values(s.screens ?? {})) {
+      add(keyOf(sc.id), { id: sc.id, kind: 'screen', title: sc.title, route: sc.route, by: sc.by, ts: sc.ts });
+      for (const m of sc.mockups ?? []) add(normPath(m), { id: normPath(m), kind: 'design', title: path.posix.basename(m), file: normPath(m), status: 'mockup' });
+    }
 
     // 2. links
     const resolve = (raw) => {
@@ -318,6 +323,11 @@ export function createIndex({ store, config, paths }) {
       prose(k, [r.text]);
     }
     for (const a of s.amendments ?? []) if (a.change) link(keyOf(a.change), keyOf(a.id), 'amends');
+    for (const sc of Object.values(s.screens ?? {})) {
+      const k = keyOf(sc.id);
+      explicit(k, sc.implements, 'implements');
+      for (const m of sc.mockups ?? []) link(normPath(m), k, 'about');
+    }
     for (const t of Object.values(s.tickets)) {
       const k = keyOf(t.id);
       explicit(k, t.refs, 'implements');
@@ -327,6 +337,8 @@ export function createIndex({ store, config, paths }) {
       if (t.release) link(k, resolve(t.release), 'part_of');
       for (const d of t.deps) link(k, keyOf(d), 'depends_on');
       for (const b of t.blockedBy) link(k, keyOf(b), 'blocked_by');
+      if (t.screen) link(k, resolve(t.screen), 'about');
+      if (t.where?.mockup) link(k, resolve(t.where.mockup), 'about');
       prose(k, [t.body]);
     }
     for (const d of s.decisions) {
@@ -491,8 +503,11 @@ export function createIndex({ store, config, paths }) {
     if (c.withdrawn) return 'withdrawn';
     return c.status === 'done' ? 'in effect' : 'proposed';
   }
-  /** Change requests (mapped, not withdrawn) that amend this requirement. */
-  const amendingChanges = (k) => Object.values(store.state.tickets).filter((c) => c.kind === 'change' && !c.withdrawn && c.mappedSeq && (c.amends ?? []).some((x) => keyOf(x) === k));
+  /** A comment still in a review nobody has approved yet: the review's plan speaks for it. */
+  const pendingReview = (t) => Boolean(t.batch && store.state.reviews?.[t.batch] && store.state.reviews[t.batch].status !== 'applied');
+  const isChange = (t) => ['change', 'feedback'].includes(t.kind);
+  /** Change requests and comments (mapped, not withdrawn, not waiting in a review) that amend this requirement. */
+  const amendingChanges = (k) => Object.values(store.state.tickets).filter((c) => isChange(c) && !c.withdrawn && !pendingReview(c) && c.mappedSeq && (c.amends ?? []).some((x) => keyOf(x) === k));
   const supersededBy = (g, key) => inOf(g, key).find((e) => e.type === 'supersedes')?.from ?? null;
   /** A decision after the change that refs both settles whether an item still holds. */
   const confirmedBy = (g, itemKey, changeKey, after) => store.state.decisions.some((d) => (d.seq ?? 0) > after && [itemKey, changeKey].every((x) => outOf(g, keyOf(d.id)).some((e) => e.to === x)));
@@ -579,6 +594,7 @@ export function createIndex({ store, config, paths }) {
     const inGroup = (e, src) => {
       if (FROM_KIND[src.kind] && !['part_of', 'depends_on'].includes(e.type)) return FROM_KIND[src.kind];
       if (src.kind === 'ticket' && e.type === 'implements') return 'tickets';
+      if (src.kind === 'ticket' && e.type === 'about' && ['feedback', 'change'].includes(src.sub)) return 'comments';
       return IN_LABEL[e.type] ?? 'referenced by';
     };
     for (const e of inOf(g, k)) put(inGroup(e, g.nodes.get(e.from)), e.from);
@@ -607,12 +623,13 @@ export function createIndex({ store, config, paths }) {
     if (l) card.link = l;
     if (n.file && n.line) card.defined = `${n.file}:${n.line}`;
     if (n.kind === 'message') card.channel = n.channel;
+    if (n.kind === 'screen' && n.route) card.route = n.route;
     if (isReq(n)) Object.assign(card, currentText(g, n));
     if (!isReq(n)) {
       const tr = traceKeys(g, k);
       card.traces_to = tr.map((x) => brief(g, x));
     }
-    const order = ['part of', 'contains', 'implements', 'tickets', 'amends', 'amended by', 'extends', 'extended by', 'defines', 'defined by', 'depends on', 'needed by', 'blocked by', 'blocking', 'about', 'answers', 'decisions', 'questions', 'facts', 'notes', 'designs', 'meetings', 'human help', 'refers to', 'referenced by', 'discussed in', 'superseded by', 'supersedes', 'for', 'discussion'];
+    const order = ['part of', 'contains', 'implements', 'screens', 'tickets', 'comments', 'amends', 'amended by', 'extends', 'extended by', 'defines', 'defined by', 'depends on', 'needed by', 'blocked by', 'blocking', 'about', 'answers', 'decisions', 'questions', 'facts', 'notes', 'designs', 'meetings', 'human help', 'refers to', 'referenced by', 'discussed in', 'superseded by', 'supersedes', 'for', 'discussion'];
     const recent = (a, b) => String(g.nodes.get(b[0]).ts ?? '').localeCompare(String(g.nodes.get(a[0]).ts ?? ''));
     const scope = reqScope(g, k);
     const names = Object.keys(groups).sort((a, b) => order.indexOf(a) - order.indexOf(b));
@@ -674,6 +691,9 @@ export function createIndex({ store, config, paths }) {
       out.text = s.notes.find((x) => x.id === n.id).text;
     } else if (n.kind === 'message') {
       out.text = s.messages.find((x) => x.id === n.id).text;
+    } else if (n.kind === 'screen') {
+      const sc = s.screens[n.id];
+      out.text = [sc.route ? `Route: ${sc.route}` : '', sc.implements.length ? `Implements: ${sc.implements.join(', ')}` : '', sc.mockups.length ? `Mockups: ${sc.mockups.join(', ')}` : '', sc.notes ?? ''].filter(Boolean).join('\n');
     } else {
       out.text = n.text ?? n.title;
     }
@@ -684,7 +704,14 @@ export function createIndex({ store, config, paths }) {
     return out;
   }
 
-  /** What a change request touches: tickets, designs, stories and open questions on what it amends. */
+  const LEVEL_LABEL = { element: 'element change', ux: 'UX change', story: 'story change' };
+  /**
+   * What a change request or comment touches. An element change stays on its
+   * screen: the tickets that built it and its mockups. A UX or story change
+   * reaches every screen implementing what it amends (the whole flow), their
+   * tickets and mockups, the stories covering it, design docs such as the API
+   * contract, and open questions on it.
+   */
   function impact(changeId) {
     const g = build();
     const t = store.state.tickets[String(changeId).toUpperCase()];
@@ -693,28 +720,42 @@ export function createIndex({ store, config, paths }) {
     const amended = (t.amends ?? []).map(keyOf).filter((k) => g.nodes.has(k));
     const extended = (t.extends ?? []).map(keyOf).filter((k) => g.nodes.has(k));
     const own = new Set(inOf(g, ck).filter((e) => e.type === 'implements').map((e) => e.from));
-    const touching = (reqs) => {
-      const res = { tickets: new Set(), designs: new Set(), stories: new Set(), questions: new Set() };
-      const set = new Set(reqs);
-      // a story or epic that covers an amended requirement is affected too
-      for (const r of reqs) for (const e of inOf(g, r)) if (isReq(g.nodes.get(e.from)) && ['refs', 'part_of'].includes(e.type)) set.add(e.from);
-      for (const r of set) {
-        for (const e of inOf(g, r)) {
-          const src = g.nodes.get(e.from);
-          if (src.kind === 'ticket' && e.type === 'implements' && e.from !== ck && !own.has(e.from)) res.tickets.add(e.from);
-          if (src.kind === 'design') res.designs.add(e.from);
-          if (src.kind === 'story' && !reqs.includes(e.from)) res.stories.add(e.from);
-          if (src.kind === 'question' && src.status === 'open') res.questions.add(e.from);
-        }
-        if (g.nodes.get(r).kind === 'story' && !reqs.includes(r)) res.stories.add(r);
+    const screenKey = t.screen && g.nodes.has(keyOf(t.screen)) ? keyOf(t.screen) : null;
+    const res = { tickets: new Set(), screens: new Set(), designs: new Set(), stories: new Set(), questions: new Set() };
+    const builtBy = (k) => inOf(g, k).filter((e) => e.type === 'implements' && g.nodes.get(e.from).kind === 'ticket' && e.from !== ck && !own.has(e.from)).map((e) => e.from);
+    /** A screen, the tickets that built it and its mockups. */
+    const addScreen = (sc) => {
+      res.screens.add(sc);
+      let built = builtBy(sc);
+      // no ticket names the screen: the UI tickets implementing what the screen implements built it
+      if (!built.length) {
+        const reqs = outOf(g, sc).filter((e) => e.type === 'implements').map((e) => e.to);
+        built = reqs.flatMap(builtBy).filter((k) => store.state.tickets[g.nodes.get(k).id]?.ui);
       }
-      return Object.fromEntries(Object.entries(res).map(([name, v]) => [name, [...v].map((k) => brief(g, k))]));
+      for (const k of built) res.tickets.add(k);
+      for (const e of inOf(g, sc)) if (g.nodes.get(e.from).kind === 'design') res.designs.add(e.from);
     };
-    const a = touching(amended);
+    if (screenKey) addScreen(screenKey);
+    const set = new Set(amended);
+    // a story or epic that covers an amended requirement is affected too
+    for (const r of amended) for (const e of inOf(g, r)) if (isReq(g.nodes.get(e.from)) && ['refs', 'part_of'].includes(e.type)) set.add(e.from);
+    for (const r of set) {
+      for (const e of inOf(g, r)) {
+        const src = g.nodes.get(e.from);
+        if (src.kind === 'ticket' && e.type === 'implements' && e.from !== ck && !own.has(e.from)) res.tickets.add(e.from);
+        if (src.kind === 'design') res.designs.add(e.from);
+        if (src.kind === 'story' && !amended.includes(e.from)) res.stories.add(e.from);
+        if (src.kind === 'question' && src.status === 'open') res.questions.add(e.from);
+        if (src.kind === 'screen' && e.type === 'implements') addScreen(e.from);
+      }
+      if (g.nodes.get(r).kind === 'story' && !amended.includes(r)) res.stories.add(r);
+    }
+    const a = Object.fromEntries(Object.entries(res).map(([name, v]) => [name, [...v].map((k) => brief(g, k))]));
     const ids = (list) => list.map((x) => `${x.id}${x.status ? ` (${x.status})` : ''}`).join(', ');
     const parts = [
       amended.length ? `amends ${amended.map((k) => g.nodes.get(k).id).join(', ')}` : null,
       extended.length ? `extends ${extended.map((k) => g.nodes.get(k).id).join(', ')}` : null,
+      a.screens.length ? `screens ${a.screens.map((x) => `${x.id} ${x.title}`).join(', ')}` : null,
       a.tickets.length ? `tickets ${ids(a.tickets)}` : null,
       a.designs.length ? `designs ${a.designs.map((x) => x.id).join(', ')}` : null,
       a.stories.length ? `stories ${a.stories.map((x) => x.id).join(', ')}` : null,
@@ -723,7 +764,169 @@ export function createIndex({ store, config, paths }) {
     const exclude = linkedSet(g, ck);
     for (const r of [...amended, ...extended]) exclude.add(r);
     const near = relatedTo(g, `${t.title} ${t.body}`, exclude, 5);
-    return { change: t.id, amends: amended.map((k) => g.nodes.get(k).id), extends: extended.map((k) => g.nodes.get(k).id), affected: a, ...(near.length ? { possibly_related: near } : {}), line: `Impact of ${t.id}: ${parts.join('; ') || 'nothing built on it yet'}.` };
+    const label = t.level ? ` (${LEVEL_LABEL[t.level]}${screenKey ? ` on ${g.nodes.get(screenKey).id}` : ''})` : '';
+    return {
+      change: t.id,
+      ...(t.level ? { level: t.level } : {}),
+      ...(screenKey ? { screen: g.nodes.get(screenKey).id } : {}),
+      amends: amended.map((k) => g.nodes.get(k).id),
+      extends: extended.map((k) => g.nodes.get(k).id),
+      affected: a,
+      ...(near.length ? { possibly_related: near } : {}),
+      line: `Impact of ${t.id}${label}: ${parts.join('; ') || 'nothing built on it yet'}.`,
+    };
+  }
+
+  /**
+   * A review of the human's comments, planned as one: each comment with its
+   * screen, level and mapping, what they touch together (and which comments
+   * touch each thing), and the checks the plan must answer: comments that
+   * amend the same item or sit on the same element, other changes to the same
+   * requirements, open conflicts, decisions and answers on what changes, built
+   * work that implements it, stories still worded the old way, agreed contracts.
+   */
+  function reviewAnalysis(reviewId) {
+    const g = build();
+    const s = store.state;
+    const r = s.reviews?.[String(reviewId ?? '').toUpperCase()];
+    if (!r) throw new McError(`No review ${reviewId}.`);
+    const all = r.comments.map((id) => s.tickets[id]).filter(Boolean);
+    const live = all.filter((t) => !t.withdrawn);
+    const inReview = new Set(all.map((t) => t.id));
+    const mapped = new Map(live.map((t) => [t.id, mapping(t, g).mapped]));
+    const comments = all.map((t) => {
+      const m = mapping(t, g);
+      const sc = t.screen ? s.screens?.[t.screen] : null;
+      const o = { id: t.id, text: t.body.split('\n\n')[0], status: t.withdrawn ? 'withdrawn' : t.status, level: t.level, mapped: m.mapped, amends: m.amends, extends: m.extends };
+      if (sc) o.screen = { id: sc.id, title: sc.title, route: sc.route, implements: sc.implements };
+      if (t.where) o.where = t.where;
+      if (t.withdrawn) o.withdrawn = t.withdrawn.reason;
+      else if (m.mapped) o.impact = impact(t.id).line;
+      else {
+        // where to look: what the screen implements, and requirements close in wording
+        const hint = {};
+        if (sc?.implements.length) hint.screen_implements = sc.implements;
+        const near = relatedTo(g, t.body, new Set([keyOf(t.id)]), 4).filter((x) => isReq(g.nodes.get(keyOf(x.id))));
+        if (near.length) hint.possibly = near;
+        o.suggest = hint;
+      }
+      return o;
+    });
+    // what the comments touch together, and which comments touch each thing
+    const groups = {};
+    for (const t of live) {
+      if (!mapped.get(t.id)) continue;
+      for (const [group, list] of Object.entries(impact(t.id).affected)) {
+        for (const x of list) {
+          if (inReview.has(x.id)) continue;
+          const m = (groups[group] ??= new Map());
+          if (!m.has(x.id)) m.set(x.id, { ...x, comments: [] });
+          m.get(x.id).comments.push(t.id);
+        }
+      }
+    }
+    const affected = Object.fromEntries(Object.entries(groups).map(([k, m]) => [k, [...m.values()]]));
+
+    const checks = [];
+    const add = (key, kind, text, ids, comments, blocking = false) => checks.push({ key, kind, text, ids, comments, ...(blocking ? { blocking: true } : {}) });
+    const name = (k) => g.nodes.get(k).id;
+    const push = (map, k, v) => {
+      if (!map.has(k)) map.set(k, []);
+      if (!map.get(k).includes(v)) map.get(k).push(v);
+    };
+    for (const t of live) {
+      if (!mapped.get(t.id)) add(`unmapped:${t.id}`, 'unmapped', `${t.id} isn't classified yet. mc_map_change with level element, ux or story (and for ux or story, what it amends or extends).`, [t.id], [t.id], true);
+    }
+    // amended items, and the stories that cover them
+    const byItem = new Map();
+    for (const t of live) for (const x of t.amends ?? []) if (g.nodes.has(keyOf(x))) push(byItem, keyOf(x), t.id);
+    const covering = new Map();
+    for (const [k, cs] of byItem) {
+      for (const e of inOf(g, k)) {
+        if (g.nodes.get(e.from).kind !== 'story' || !['refs', 'part_of'].includes(e.type) || byItem.has(e.from)) continue;
+        for (const c of cs) push(covering, e.from, c);
+      }
+    }
+    for (const [k, cs] of byItem) {
+      if (cs.length > 1) add(`overlap:${name(k)}`, 'overlap', `${cs.join(' and ')} all amend ${name(k)}. Give it one amendment that covers them (amendments: [{ id: "${name(k)}", comments: ${JSON.stringify(cs)} }]), or say how they fit together.`, [name(k)], cs);
+    }
+    for (const [k, cs] of covering) {
+      add(`story:${name(k)}`, 'story', `${name(k)} covers ${[...byItem].filter(([, x]) => x.some((c) => cs.includes(c))).map(([i]) => name(i)).join(', ')}, which ${cs.join(', ')} change${cs.length > 1 ? '' : 's'}, and still says what it said. Reword it in amendments, or say it still holds.`, [name(k)], cs);
+    }
+    // the same element, commented on twice
+    const spots = new Map();
+    for (const t of live) {
+      const w = t.where ?? {};
+      const spot = w.selector ? `${t.screen ?? w.route ?? ''} ${w.selector}` : w.mockup && w.x != null ? `${w.mockup} @${Math.round(w.x / 5) * 5},${Math.round(w.y / 5) * 5}` : null;
+      if (spot) push(spots, spot, t.id);
+    }
+    for (const [spot, cs] of spots) {
+      if (cs.length > 1) add(`same-element:${cs.join('+')}`, 'same-element', `${cs.join(' and ')} are about the same element (${spot.trim()}). Merge them (action "merge") or say how both apply.`, cs, cs);
+    }
+    // what the comments change or build on: amended and extended items, the stories covering
+    // what's amended, each comment's screen and what that screen implements. Building on
+    // something can contradict what was decided or answered about it as much as changing it.
+    const extended = new Map();
+    for (const t of live) for (const x of t.extends ?? []) if (g.nodes.has(keyOf(x))) push(extended, keyOf(x), t.id);
+    const screens = new Map();
+    for (const t of live) {
+      if (!t.screen || !g.nodes.has(keyOf(t.screen))) continue;
+      push(screens, keyOf(t.screen), t.id);
+      for (const e of outOf(g, keyOf(t.screen))) if (e.type === 'implements') push(screens, e.to, t.id);
+    }
+    const scope = new Map();
+    for (const m of [byItem, covering, extended, screens]) for (const [k, cs] of m) for (const c of cs) push(scope, k, c);
+    const on = (cs) => [...scope].filter(([, x]) => x.some((c) => cs.includes(c))).map(([k]) => k);
+    // other changes to anything the comments amend or build on, not in this review
+    const changed = new Map([...byItem, ...extended]);
+    for (const c of Object.values(s.tickets)) {
+      if (inReview.has(c.id) || !isChange(c) || c.withdrawn || c.status === 'done') continue;
+      const hit = (c.amends ?? []).map(keyOf).filter((k) => changed.has(k));
+      const cs = [...new Set(hit.flatMap((k) => changed.get(k)))];
+      const verb = hit.some((k) => byItem.has(k)) ? (cs.length > 1 ? 'amend' : 'amends') : cs.length > 1 ? 'build on' : 'builds on';
+      if (hit.length) add(`pending:${c.id}`, 'pending', `${c.id} (${c.status}, not in this review) also changes ${hit.map(name).join(', ')}, which ${cs.join(', ')} ${verb}. Say which goes first, or fold it into this plan.`, [c.id, ...hit.map(name)], cs);
+    }
+    for (const q of Object.values(s.questions)) {
+      if (!q.conflict || q.status !== 'open') continue;
+      const hit = q.conflict.about.map(keyOf).filter((k) => scope.has(k));
+      if (hit.length) add(`conflict:${q.id}`, 'conflict', `${q.id} is an open ${q.conflict.kind} conflict on ${hit.map(name).join(', ')} (with ${q.to}). Settle it first, or say how this plan settles it.`, [q.id], [...new Set(hit.flatMap((k) => scope.get(k)))]);
+    }
+    const decisions = new Map();
+    for (const [k, cs] of scope) {
+      for (const e of inOf(g, k)) {
+        const d = g.nodes.get(e.from);
+        if (d.kind === 'decision' && !supersededBy(g, e.from)) for (const c of cs) push(decisions, e.from, c);
+      }
+    }
+    for (const [d, cs] of decisions) {
+      const items = on(cs).filter((k) => outOf(g, d).some((e) => e.to === k));
+      add(`decision:${name(d)}`, 'decision', `${name(d)} (${clip(g.nodes.get(d).title, 80)}) was decided on ${items.map(name).join(', ') || 'what they touch'}, which ${cs.join(', ')} change${cs.length > 1 ? '' : 's'} or build${cs.length > 1 ? '' : 's'} on. Does the plan contradict it? Supersede it (supersede: ["${name(d)}"]) or say why it still holds.`, [name(d)], cs);
+    }
+    for (const f of s.facts) {
+      const fk = keyOf(f.id);
+      const tr = deepTrace(g, fk);
+      const cs = [...new Set([...scope].filter(([k]) => tr.includes(k)).flatMap(([, x]) => x))];
+      if (cs.length) add(`fact:${f.id}`, 'fact', `${f.id} is an answer ${f.by === 'you' ? 'you gave' : `from ${f.by}`} on what ${cs.join(', ')} change or build on: "${clip(f.text, 100)}". Say whether it still holds.`, [f.id], cs);
+    }
+    // built work that implements what changes
+    for (const t of Object.values(s.tickets)) {
+      if (inReview.has(t.id) || t.withdrawn || t.status === 'todo' || isChange(t)) continue;
+      const tr = deepTrace(g, keyOf(t.id));
+      const cs = [...new Set([...byItem].filter(([k]) => tr.includes(k)).flatMap(([, x]) => x))];
+      if (cs.length) add(`rework:${t.id}`, 'rework', `${t.id} (${t.status}${t.assignee ? `, ${t.assignee}` : ''}) implements what ${cs.join(', ')} change${cs.length > 1 ? '' : 's'}. Reopen it (reopen) or say why it still holds.`, [t.id], cs);
+    }
+    for (const x of affected.designs ?? []) {
+      const d = s.designs[x.id];
+      if (d && ['agreed', 'frozen'].includes(d.status)) add(`contract:${x.id}`, 'contract', `${x.id} is ${d.status} (consumers: ${d.consumers.join(', ') || 'none'}). Say how it changes; its consumers approve the new version.`, [x.id], x.comments);
+    }
+    const near = relatedTo(g, live.map((t) => t.body).join(' '), new Set([...live.flatMap((t) => [...linkedSet(g, keyOf(t.id))]), ...scope.keys()]), 6);
+    return {
+      review: { id: r.id, title: r.title, status: r.status, by: r.by, ts: r.ts, ...(r.submittedAt ? { submitted: r.submittedAt } : {}) },
+      comments,
+      affected,
+      checks,
+      ...(near.length ? { possibly_related: near } : {}),
+    };
   }
 
   /** The latest consistency check that covered this item, if any. */
@@ -732,7 +935,12 @@ export function createIndex({ store, config, paths }) {
     return c ? { verdict: c.verdict, by: c.by, ts: c.ts, ...(c.note ? { note: c.note } : {}) } : null;
   }
 
-  /** Is this change request (or feedback) tied to the requirements it changes? */
+  /**
+   * Is this change request or comment tied to the requirements it changes?
+   * An element change keeps to what's agreed: its screen (which implements
+   * stories) is enough. A UX or story change, and any change request, says
+   * what it amends or extends.
+   */
   function mapping(t, g = build()) {
     const k = keyOf(t.id);
     const defines = outOf(g, k).filter((e) => e.type === 'defines').map((e) => g.nodes.get(e.to).id);
@@ -741,8 +949,9 @@ export function createIndex({ store, config, paths }) {
     const reqs = [...g.nodes.values()].filter(isReq);
     // a change in a project with no requirements yet can only define the first ones
     const onlyOwn = reqs.every((r) => defines.includes(r.id));
-    const mapped = t.kind === 'change' ? amends.length + ext.length > 0 || (defines.length > 0 && onlyOwn) : traceKeys(g, k).length > 0;
-    return { mapped, amends, extends: ext, defines };
+    const explicit = amends.length + ext.length > 0 || (defines.length > 0 && onlyOwn);
+    const mapped = t.level === 'element' ? explicit || traceKeys(g, k).length > 0 : explicit;
+    return { mapped, level: t.level ?? null, amends, extends: ext, defines };
   }
 
   // ---------- diagnostics ----------
@@ -769,18 +978,30 @@ export function createIndex({ store, config, paths }) {
     const confirmed = (item, ck, after) => confirmedBy(g, item, ck, after);
 
     for (const t of tickets) {
-      if ((t.kind === 'change' || t.kind === 'feedback') && t.status !== 'done' && !mapping(t, g).mapped) {
-        add('unmapped-change', `${t.id} (${t.kind}) isn't mapped to the requirements it amends or extends. The lead maps it with mc_map_change before anyone starts it.`, [t.id]);
+      if (isChange(t) && t.status !== 'done' && !pendingReview(t) && !mapping(t, g).mapped) {
+        add(
+          'unmapped-change',
+          t.kind === 'feedback'
+            ? `${t.id} (a comment${t.screen ? ` on ${t.screen}` : ''}) isn't classified and mapped. The lead says what kind of change it is with mc_map_change (level element, ux or story) and, for ux or story, what it amends or extends, before anyone starts it.`
+            : `${t.id} (${t.kind}) isn't mapped to the requirements it amends or extends. The lead maps it with mc_map_change before anyone starts it.`,
+          [t.id],
+        );
       }
     }
-    const changes = tickets.filter((x) => x.kind === 'change' && x.mappedSeq && x.amends?.length && !x.withdrawn);
+    // the human's batched comments: planned together, approved once
+    for (const r of Object.values(s.reviews ?? {})) {
+      if (r.status === 'submitted') add('review-to-plan', `${r.id} (${r.comments.length} comment${r.comments.length === 1 ? '' : 's'} from ${r.by === 'you' ? 'the human' : r.by}) was submitted and has no plan yet. Run /mc-review-feedback ${r.id}.`, [r.id, ...r.comments]);
+      if (r.status === 'proposed') add('review-to-approve', `The plan for ${r.id} waits for the human's OK in HQ → Inbox.`, [r.id]);
+    }
+    const changes = tickets.filter((x) => isChange(x) && x.mappedSeq && x.amends?.length && !x.withdrawn && !pendingReview(x));
     for (const c of changes) {
       const ck = keyOf(c.id);
       const own = new Set(inOf(g, ck).filter((e) => e.type === 'implements').map((e) => e.from));
       const amended = new Set(c.amends.map(keyOf));
       for (const t of tickets) {
         const tk = keyOf(t.id);
-        if (t.id === c.id || own.has(tk)) continue;
+        // a withdrawn ticket is closed, not done: nothing was built
+        if (t.id === c.id || own.has(tk) || t.withdrawn) continue;
         const hit = deepTrace(g, tk).find((r) => amended.has(r));
         if (!hit) continue;
         const rid = g.nodes.get(hit).id;
@@ -826,9 +1047,10 @@ export function createIndex({ store, config, paths }) {
     for (const t of tickets) {
       if (t.kind === 'change' && t.approval === 'needed' && !t.withdrawn) add('awaiting-approval', `${t.id} (a change the team raised) waits for the human's OK in HQ → Inbox before anyone starts it.`, [t.id]);
     }
-    // new stories, added requirements and changes are checked against what's already agreed
+    // new stories, added requirements and changes are checked against what's already agreed (an element change agreed nothing new)
+    const isUnchecked = (t) => t && isChange(t) && !t.withdrawn && t.status !== 'done' && t.mappedSeq && t.level !== 'element' && !pendingReview(t);
     const unchecked = [...g.nodes.values()]
-      .filter((n) => (n.kind === 'story' || (n.ledger && isReq(n)) || (n.kind === 'ticket' && n.sub === 'change' && n.status !== 'withdrawn' && n.status !== 'done' && s.tickets[n.id]?.mappedSeq)) && !checkOf(n.key))
+      .filter((n) => (n.kind === 'story' || (n.ledger && isReq(n)) || (n.kind === 'ticket' && isUnchecked(s.tickets[n.id]))) && !checkOf(n.key))
       .map((n) => n.id);
     if (unchecked.length) {
       add('unchecked', `${unchecked.length} not checked for conflicts with what's already agreed: ${unchecked.slice(0, 8).join(', ')}${unchecked.length > 8 ? '…' : ''}. Run /mc-check (mc_check records the result).`, unchecked);
@@ -861,7 +1083,7 @@ export function createIndex({ store, config, paths }) {
     let withTickets = 0;
     let done = 0;
     for (const r of reqs) {
-      const ts = inOf(g, r.key).filter((e) => e.type === 'implements').map((e) => s.tickets[g.nodes.get(e.from).id]);
+      const ts = inOf(g, r.key).filter((e) => e.type === 'implements' && g.nodes.get(e.from).kind === 'ticket').map((e) => s.tickets[g.nodes.get(e.from).id]);
       if (ts.length) withTickets += 1;
       if (ts.length && ts.every((t) => t.status === 'done')) done += 1;
     }
@@ -1011,7 +1233,7 @@ export function createIndex({ store, config, paths }) {
     const reqs = deepTrace(g, tk);
     const linked = (k, kinds) => inOf(g, k).map((e) => e.from).filter((x) => kinds.includes(g.nodes.get(x).kind));
     // the change this ticket builds (itself, or the change it is part of)
-    const building = new Set([t.id, ...t.refs.map((r) => String(r).toUpperCase()).filter((r) => store.state.tickets[r]?.kind === 'change')]);
+    const building = new Set([t.id, ...t.refs.map((r) => String(r).toUpperCase()).filter((r) => isChange(store.state.tickets[r] ?? {}))]);
     const requirementsOut = reqs.map((k) => {
       const n = g.nodes.get(k);
       const o = { id: n.id, title: clip(n.title, 140), ...currentText(g, n) };
@@ -1029,7 +1251,7 @@ export function createIndex({ store, config, paths }) {
       // the human's answers: given on it directly, or to a question about it
       const answered = linked(k, ['question']).flatMap((q) => inOf(g, q).filter((e) => e.type === 'answers').map((e) => e.from));
       const facts = [...new Set([...linked(k, ['fact']), ...answered])];
-      const others = inOf(g, k).filter((e) => e.type === 'implements' && e.from !== tk).map((e) => e.from);
+      const others = inOf(g, k).filter((e) => e.type === 'implements' && e.from !== tk && g.nodes.get(e.from).kind === 'ticket').map((e) => e.from);
       if (decisions.length) o.decisions = decisions.slice(-5).map((x) => brief(g, x, fresh(x)));
       if (questions.length) o.open_questions = questions.map((x) => brief(g, x));
       if (notes.length) o.notes = notes.slice(-5).map((x) => ({ ...brief(g, x, fresh(x)), text: clip(store.state.notes.find((m) => m.id === g.nodes.get(x).id)?.text, 400) }));
@@ -1052,7 +1274,13 @@ export function createIndex({ store, config, paths }) {
     if (near.length) out.possibly_related = { note: 'Not linked to this ticket, but close in wording. Check none contradicts what you build; if one does, mc_conflict.', items: near };
     const thread = own(['message']).length;
     if (thread) out.discussion = `${thread} message(s) about ${t.id}: mc_ref "${t.id}" with only: "discussion"`;
-    if (t.kind === 'change' && (t.amends?.length || t.extends?.length)) out.impact = impact(t.id).line;
+    if (isChange(t) && (t.level || t.amends?.length || t.extends?.length)) out.impact = impact(t.id).line;
+    // a comment: the screen it is on, and the screen's other open comments
+    if (t.screen && store.state.screens?.[t.screen]) {
+      const sc = store.state.screens[t.screen];
+      const others = Object.values(store.state.tickets).filter((x) => x.id !== t.id && x.screen === sc.id && x.status !== 'done' && !x.withdrawn);
+      out.screen = { id: sc.id, title: sc.title, route: sc.route, implements: sc.implements, mockups: sc.mockups, ...(others.length ? { other_open_comments: others.map((x) => `${x.id} ${x.title}`) } : {}) };
+    }
     const diags = diagnostics().filter((d) => d.ids.includes(t.id) || d.ids.some((x) => reqs.includes(keyOf(x))));
     if (diags.length) out.diagnostics = diags.map((d) => d.text);
     out.how = 'mc_ref <ID> shows everything linked to an ID; mc_section <ID> reads just its definition. Read those instead of whole files.';
@@ -1118,6 +1346,7 @@ export function createIndex({ store, config, paths }) {
     contextFor,
     related,
     checkOf: (raw) => checkOf(keyOf(raw)),
+    reviewAnalysis,
     epicOf,
     nextRequirementId,
   };
